@@ -17,3 +17,7 @@ include_directories(${CMAKE_SOURCE_DIR}/libs/open62541/src/server)
 
 add_executable(udp_pubsub_publish udp_pubsub_publish.c)
 target_link_libraries(udp_pubsub_publish open62541)
+
+add_executable(udp_pubsub_subscribe udp_pubsub_subscribe.c)
+target_link_libraries(udp_pubsub_subscribe open62541)
+

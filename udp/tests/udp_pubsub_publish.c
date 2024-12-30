@@ -28,7 +28,6 @@
 #include <open62541/server.h>
 #include <open62541/server_pubsub.h>
 #include <open62541/types.h>
-#include <open62541/src/pubsub/ua_pubsub_internal.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,7 +51,7 @@ addPubSubConnection(UA_Server *server, UA_String *transportProfile,
     /* Changed to static publisherId from random generation to identify
      * the publisher on Subscriber side */
     connectionConfig.publisherId.idType = UA_PUBLISHERIDTYPE_UINT16;
-    connectionConfig.publisherId.id.uint16 =  UA_UInt32_random();
+    connectionConfig.publisherId.id.uint16 =  2234;
     UA_Server_addPubSubConnection(server, &connectionConfig, connectionIdent);
 }
 
