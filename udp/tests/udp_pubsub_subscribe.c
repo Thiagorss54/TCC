@@ -31,6 +31,14 @@ int count = 1;
 int publisherId = 2234;
 
 static void fillTestDataSetMetaData(UA_DataSetMetaDataType *pMetaData);
+void arrayToDateTime(UA_DateTime *receivedTime, const UA_Byte array[68]);
+static void onVariableValueChanged(UA_Server *server, 
+                                const UA_NodeId *sessionId, 
+                                void *sessionContext, 
+                                const UA_NodeId *nodeId, 
+                                void *nodeContext, 
+                                const UA_NumericRange *range, 
+                                const UA_DataValue *data) ;
 
 /* Add new connection to the server */
 static void
@@ -97,7 +105,57 @@ void arrayToDateTime(UA_DateTime *receivedTime, const UA_Byte array[68])  {
     memcpy(receivedTime, &array[60], sizeof(UA_DateTime));
 }
 
-static void dataChangeCallback(UA_Server *server, 
+// static void dataChangeCallback(UA_Server *server, 
+//                                 const UA_NodeId *sessionId, 
+//                                 void *sessionContext, 
+//                                 const UA_NodeId *nodeId, 
+//                                 void *nodeContext, 
+//                                 const UA_NumericRange *range, 
+//                                 const UA_DataValue *data) {
+//     (void)sessionId;
+//     (void)sessionContext;
+//     (void)nodeContext;
+//     (void)range;
+
+
+//     UA_DateTime dateTime;
+
+//     arrayToDateTime(&dateTime, data->value.data);
+    
+//     // Verifica se o tipo de dado é UA_DATETIME
+//     if (dateTime != 0) {
+//         // Converte UA_DateTime para Unix time (segundos inteiros desde 1970)
+//         time_t unixTime = (time_t)UA_DateTime_toUnixTime(dateTime);
+
+//         // Calcula a parte fracionária em nanossegundos
+//         UA_Int64 nanoFraction = (dateTime % 10000000LL) * 100;
+
+//         // Converte para estrutura tm e formata
+//         struct tm *timeInfo = gmtime(&unixTime);
+//         if (timeInfo != NULL) {
+//             char buffer[100];
+//             strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
+//             UA_DateTime timestamp = UA_DateTime_now();
+
+//             // Adiciona a parte em nanossegundos ao timestamp formatado
+//             // printf("Recebido %lld -- Data/Hora: %s.%09lld UTC\n",(long long)timestamp, buffer, (long long)nanoFraction);
+//             printf("msg %d -> dateTimeNow: %lld  publishedDatetime: %lld\n",count, (long long)timestamp , (long long)dateTime);
+//             double delta_ms = (double)(timestamp - dateTime)/10000;
+//             printf("msg %d -> delta: %.4f ms\n",count, delta_ms);
+//             count++;
+//         } else {
+//             UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
+//                         "Erro ao converter UA_DateTime.");
+//         }
+//     } else {
+//         UA_LOG_INFO(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
+//                     "Data atualizada: NodeId %d, Tipo não é DateTime.",
+//                     nodeId->identifier.numeric);
+//     }
+// }
+
+static void
+onVariableValueChanged(UA_Server *server, 
                                 const UA_NodeId *sessionId, 
                                 void *sessionContext, 
                                 const UA_NodeId *nodeId, 
@@ -108,43 +166,32 @@ static void dataChangeCallback(UA_Server *server,
     (void)sessionContext;
     (void)nodeContext;
     (void)range;
-
-
-    UA_DateTime dateTime;
-
-    arrayToDateTime(&dateTime, data->value.data);
     
-    // Verifica se o tipo de dado é UA_DATETIME
-    if (dateTime != 0) {
-        // Converte UA_DateTime para Unix time (segundos inteiros desde 1970)
-        time_t unixTime = (time_t)UA_DateTime_toUnixTime(dateTime);
+    UA_Variant value;
+    UA_Variant_init(&value);
 
-        // Calcula a parte fracionária em nanossegundos
-        UA_Int64 nanoFraction = (dateTime % 10000000LL) * 100;
-
-        // Converte para estrutura tm e formata
-        struct tm *timeInfo = gmtime(&unixTime);
-        if (timeInfo != NULL) {
-            char buffer[100];
-            strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
-            UA_DateTime timestamp = UA_DateTime_now();
-
-            // Adiciona a parte em nanossegundos ao timestamp formatado
-            // printf("Recebido %lld -- Data/Hora: %s.%09lld UTC\n",(long long)timestamp, buffer, (long long)nanoFraction);
-            printf("msg %d -> dateTimeNow: %lld  publishedDatetime: %lld\n",count, (long long)timestamp , (long long)dateTime);
-            double delta_ms = (double)(timestamp - dateTime)/10000;
-            printf("msg %d -> delta: %.4f ms\n",count, delta_ms);
-            count++;
+    // Ler o valor atualizado da variável
+    UA_StatusCode retval = UA_Server_readValue(server, *nodeId, &value);
+    if (retval == UA_STATUSCODE_GOOD) {
+        // Verificar o tipo de dado e exibir o valor
+        if (value.type == &UA_TYPES[UA_TYPES_BYTESTRING]) {
+            UA_ByteString *byteStringValue = (UA_ByteString *)value.data;
+            printf("Variable [%u] updated: UA_ByteString length=%zu, data=%s\n",
+                   nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data);
+        } else if (value.type == &UA_TYPES[UA_TYPES_INT32]) {
+            UA_Int32 *intValue = (UA_Int32 *)value.data;
+            printf("Variable [%u] updated: Int32 value=%d\n",
+                   nodeId->identifier.numeric, *intValue);
         } else {
-            UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
-                        "Erro ao converter UA_DateTime.");
+            printf("Variable [%u] updated: Unsupported data type\n", nodeId->identifier.numeric);
         }
     } else {
-        UA_LOG_INFO(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
-                    "Data atualizada: NodeId %d, Tipo não é DateTime.",
-                    nodeId->identifier.numeric);
+        printf("Failed to read updated value for NodeId [%u]\n", nodeId->identifier.numeric);
     }
+
+    UA_Variant_clear(&value);
 }
+
 /**
  * **SubscribedDataSet**
  *
@@ -201,9 +248,10 @@ addSubscribedVariables (UA_Server *server, UA_NodeId dataSetReaderId) {
         targetVars[i].targetVariable.attributeId  = UA_ATTRIBUTEID_VALUE;
         targetVars[i].targetVariable.targetNodeId = newNode;
         
+        
         UA_ValueCallback callback;
         callback.onRead = NULL;
-        callback.onWrite = dataChangeCallback;
+        callback.onWrite = onVariableValueChanged;
         UA_Server_setVariableNode_valueCallback(server, newNode, callback);
 
     }
@@ -238,16 +286,24 @@ fillTestDataSetMetaData(UA_DataSetMetaDataType *pMetaData) {
                          &UA_TYPES[UA_TYPES_FIELDMETADATA]);
 
   /* Byte Array DataType */
-    UA_FieldMetaData_init(&pMetaData->fields[0]);
-    UA_NodeId_copy(&UA_TYPES[UA_TYPES_BYTE].typeId, &pMetaData->fields[0].dataType);
-    pMetaData->fields[0].builtInType = UA_NS0ID_BYTE;
-    pMetaData->fields[0].name = UA_STRING("ByteArrayWithTimestamp");
-    pMetaData->fields[0].valueRank = 1; /* Indicates an array */
+    // UA_FieldMetaData_init(&pMetaData->fields[0]);
+    // UA_NodeId_copy(&UA_TYPES[UA_TYPES_BYTE].typeId, &pMetaData->fields[0].dataType);
+    // pMetaData->fields[0].builtInType = UA_NS0ID_BYTE;
+    // pMetaData->fields[0].name = UA_STRING("ByteArrayWithTimestamp");
+    // pMetaData->fields[0].valueRank = 1; /* Indicates an array */
 
-    /* Set the size of the array to 1008 bytes */
-    pMetaData->fields[0].arrayDimensionsSize = 1;
-    UA_UInt32 arrayDimensions[1] = {68};  // Array size of 1008 bytes
-    pMetaData->fields[0].arrayDimensions = arrayDimensions;
+    // /* Set the size of the array to 1008 bytes */
+    // pMetaData->fields[0].arrayDimensionsSize = 1;
+    // UA_UInt32 arrayDimensions[1] = {68};  // Array size of 1008 bytes
+    // pMetaData->fields[0].arrayDimensions = arrayDimensions;
+
+    /* ByteString DataType*/
+    UA_FieldMetaData_init(&pMetaData->fields[0]);
+    UA_NodeId_copy(&UA_TYPES[UA_TYPES_BYTESTRING].typeId, &pMetaData->fields[0].dataType);
+    pMetaData->fields[0].builtInType = UA_NS0ID_BYTESTRING;
+    pMetaData->fields[0].name = UA_STRING("ByteString");
+    pMetaData->fields[0].valueRank=-1;
+
 }
 
 

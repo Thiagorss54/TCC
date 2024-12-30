@@ -32,6 +32,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+int max_message_pow = 5;
+UA_ByteString byteStringPayloadData = {0, NULL};
+
 void updateLargeCustomVariable(UA_Server *server);
 
 UA_NodeId pubConnectionIdent,subConnectionIdent, publishedDataSetIdent, writerGroupIdent,
@@ -152,6 +155,40 @@ void updateLargeCustomVariable(UA_Server *server){
     }
 }
 
+void addByteStringVariable(UA_Server *server){
+    
+    
+    UA_NodeId byteStringNodeId = UA_NODEID_STRING(1,"ByteStringVariable");
+    UA_VariableAttributes attr = UA_VariableAttributes_default;
+    attr.displayName = UA_LOCALIZEDTEXT("en-US", "ByteStringVariable");
+    attr.dataType = UA_TYPES[UA_TYPES_BYTESTRING].typeId;
+    attr.valueRank = -1;
+
+
+    UA_Variant_setScalar(&attr.value, &byteStringPayloadData, &UA_TYPES[UA_TYPES_BYTESTRING]);
+
+    UA_Server_addVariableNode(server,byteStringNodeId,
+                                UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
+                                UA_NODEID_NUMERIC(0, UA_NS0ID_ORGANIZES),
+                                UA_QUALIFIEDNAME(1, "ByteStringVariable"),
+                                UA_NODEID_NUMERIC(0, UA_NS0ID_BASEDATAVARIABLETYPE),
+                                attr, NULL, NULL);
+}
+
+void addByteStringDataSetField(UA_Server *server){
+ /* Add a field to the PublishedDataSet linked to the large variable */
+    UA_NodeId dataSetFieldIdent;
+    UA_DataSetFieldConfig dataSetFieldConfig;
+    memset(&dataSetFieldConfig, 0, sizeof(UA_DataSetFieldConfig));
+    dataSetFieldConfig.dataSetFieldType = UA_PUBSUB_DATASETFIELD_VARIABLE;
+    dataSetFieldConfig.field.variable.fieldNameAlias = UA_STRING("ByteStringVariable");
+    dataSetFieldConfig.field.variable.promotedField = false;
+    dataSetFieldConfig.field.variable.publishParameters.publishedVariable =
+        UA_NODEID_STRING(1, "ByteStringVariable");
+    dataSetFieldConfig.field.variable.publishParameters.attributeId = UA_ATTRIBUTEID_VALUE;
+    UA_Server_addDataSetField(server, publishedDataSetIdent,
+                              &dataSetFieldConfig, &dataSetFieldIdent);
+}
 
 //  LargeDataSet
 static void
@@ -252,9 +289,11 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *networkAddressUrl
     /* Add the PubSub components. They are initially disabled */
     addPubSubConnection(server, transportProfile, networkAddressUrl,&pubConnectionIdent);
     addPublishedDataSet(server);
-    addLargeCustomVariable(server); //custom variable
-    addLargeDataSetField(server);   //addingLargeDataSet
+    // addLargeCustomVariable(server); //custom variable
+    // addLargeDataSetField(server);   //addingLargeDataSet
     // addDataSetField(server);
+    addByteStringVariable(server);
+    addByteStringDataSetField(server);
     addWriterGroup(server);
     addDataSetWriter(server);
 
@@ -277,9 +316,9 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *networkAddressUrl
     printf("Servidor rodando.../n");
     clock_t begin, finish;
     begin = clock();
-    for(int i=0; i <100000; i++){
+    for(int i=0; i <10; i++){
         //update value
-        updateLargeCustomVariable(server);
+        // updateLargeCustomVariable(server);
         printf("publishing package number %d\n", i);
 
         //trigger publish
@@ -302,6 +341,13 @@ usage(char *progname) {
 }
 
 int main(int argc, char **argv) {
+    UA_Byte customSizeByte[(int)pow(2,max_message_pow)];
+    for(int i =0; i < sizeof(customSizeByte); i++){
+        customSizeByte[i]='*';
+    }
+    byteStringPayloadData.length = (int)pow(2,max_message_pow);
+    byteStringPayloadData.data = &customSizeByte[0];
+
     UA_String transportProfile =
         UA_STRING("http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp");
     UA_NetworkAddressUrlDataType networkAddressUrl =
