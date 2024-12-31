@@ -40,7 +40,7 @@ UA_ByteString byteStringPayloadData = {0, NULL};
 
 UA_DataSetReaderConfig readerConfig;
 int count = 1;
-int publisherId = 2234;
+// int publisherId = 2234;
 
 static void fillTestDataSetMetaData(UA_DataSetMetaDataType *pMetaData);
 
@@ -119,58 +119,6 @@ addDataSetReader(UA_Server *server)
     UA_Server_addDataSetReader(server, readerGroupIdentifier, &readerConfig,
                                &readerIdentifier);
 }
-void arrayToDateTime(UA_DateTime *receivedTime, const UA_Byte array[68])
-{
-    memcpy(receivedTime, &array[60], sizeof(UA_DateTime));
-}
-
-// static void dataChangeCallback(UA_Server *server,
-//                                 const UA_NodeId *sessionId,
-//                                 void *sessionContext,
-//                                 const UA_NodeId *nodeId,
-//                                 void *nodeContext,
-//                                 const UA_NumericRange *range,
-//                                 const UA_DataValue *data) {
-//     (void)sessionId;
-//     (void)sessionContext;
-//     (void)nodeContext;
-//     (void)range;
-
-//     UA_DateTime dateTime;
-
-//     arrayToDateTime(&dateTime, data->value.data);
-
-//     // Verifica se o tipo de dado é UA_DATETIME
-//     if (dateTime != 0) {
-//         // Converte UA_DateTime para Unix time (segundos inteiros desde 1970)
-//         time_t unixTime = (time_t)UA_DateTime_toUnixTime(dateTime);
-
-//         // Calcula a parte fracionária em nanossegundos
-//         UA_Int64 nanoFraction = (dateTime % 10000000LL) * 100;
-
-//         // Converte para estrutura tm e formata
-//         struct tm *timeInfo = gmtime(&unixTime);
-//         if (timeInfo != NULL) {
-//             char buffer[100];
-//             strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
-//             UA_DateTime timestamp = UA_DateTime_now();
-
-//             // Adiciona a parte em nanossegundos ao timestamp formatado
-//             // printf("Recebido %lld -- Data/Hora: %s.%09lld UTC\n",(long long)timestamp, buffer, (long long)nanoFraction);
-//             printf("msg %d -> dateTimeNow: %lld  publishedDatetime: %lld\n",count, (long long)timestamp , (long long)dateTime);
-//             double delta_ms = (double)(timestamp - dateTime)/10000;
-//             printf("msg %d -> delta: %.4f ms\n",count, delta_ms);
-//             count++;
-//         } else {
-//             UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
-//                         "Erro ao converter UA_DateTime.");
-//         }
-//     } else {
-//         UA_LOG_INFO(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
-//                     "Data atualizada: NodeId %d, Tipo não é DateTime.",
-//                     nodeId->identifier.numeric);
-//     }
-// }
 
 static void
 onVariableValueChanged(UA_Server *server,
@@ -361,7 +309,7 @@ void addByteStringDataSetField(UA_Server *server)
     dataSetFieldConfig.field.variable.fieldNameAlias = UA_STRING("ByteStringVariable");
     dataSetFieldConfig.field.variable.promotedField = false;
     dataSetFieldConfig.field.variable.publishParameters.publishedVariable =
-        UA_NODEID_NUMERIC(1, (UA_UInt32)50000);
+        UA_NODEID_STRING(1, "ByteStringVariable");
     dataSetFieldConfig.field.variable.publishParameters.attributeId = UA_ATTRIBUTEID_VALUE;
     UA_Server_addDataSetField(server, publishedDataSetIdent,
                               &dataSetFieldConfig, &dataSetFieldIdent);
@@ -420,14 +368,15 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *subNetworkAddress
     UA_Server *server = UA_Server_new();
 
     // subscribe
-    addPubSubConnection(server, transportProfile, subNetworkAddressUrl, &subConnectionIdent, SUB);
-    addReaderGroup(server);
-    addDataSetReader(server);
-    addSubscribedVariables(server, readerIdentifier);
+    // addPubSubConnection(server, transportProfile, subNetworkAddressUrl, &subConnectionIdent, SUB);
+    // addReaderGroup(server);
+    // addDataSetReader(server);
+    // addSubscribedVariables(server, readerIdentifier);
 
     // publish
     addPubSubConnection(server, transportProfile, pubNetworkAddressUrl, &pubConnectionIdent, PUB);
     addPublishedDataSet(server);
+    addByteStringVariable(server);
     addByteStringDataSetField(server);
     addWriterGroup(server);
     addDataSetWriter(server);
@@ -441,6 +390,15 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *subNetworkAddress
 
 int main(int argc, char **argv)
 {
+
+    UA_Byte customSizeByte[(int)pow(2, max_message_pow)];
+
+    for (int i = 0; i < sizeof(customSizeByte); i++)
+    {
+        customSizeByte[i] = '-';
+    }
+    byteStringPayloadData.length = (int)pow(2, max_message_pow);
+    byteStringPayloadData.data = &customSizeByte[0];
 
     UA_String transportProfile =
         UA_STRING("http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp");

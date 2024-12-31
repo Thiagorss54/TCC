@@ -92,87 +92,6 @@ addPublishedDataSet(UA_Server *server)
  *
  * The DataSetField (DSF) is part of the PDS and describes exactly one published
  * field. */
-static void
-addDataSetField(UA_Server *server)
-{
-    /* Add a field to the previous created PublishedDataSet */
-    UA_NodeId dataSetFieldIdent;
-    UA_DataSetFieldConfig dataSetFieldConfig;
-    memset(&dataSetFieldConfig, 0, sizeof(UA_DataSetFieldConfig));
-    dataSetFieldConfig.dataSetFieldType = UA_PUBSUB_DATASETFIELD_VARIABLE;
-    dataSetFieldConfig.field.variable.fieldNameAlias = UA_STRING("Server localtime");
-    dataSetFieldConfig.field.variable.promotedField = false;
-    dataSetFieldConfig.field.variable.publishParameters.publishedVariable =
-        UA_NS0ID(SERVER_SERVERSTATUS_CURRENTTIME);
-    dataSetFieldConfig.field.variable.publishParameters.attributeId = UA_ATTRIBUTEID_VALUE;
-    UA_Server_addDataSetField(server, publishedDataSetIdent,
-                              &dataSetFieldConfig, &dataSetFieldIdent);
-}
-// Teste da variável grande
-static void
-addLargeCustomVariable(UA_Server *server)
-{
-    /* Define a large array of bytes (at least 1000 bytes) */
-    UA_Byte largeData[68];
-    for (size_t i = 0; i < sizeof(largeData); i++)
-    {
-        largeData[i] = (UA_Byte)(i % 256); // Fill the array with sample data
-    }
-
-    /* Get the current timestamp */
-    UA_DateTime timestamp = UA_DateTime_now();
-
-    // Add the timestamp in the last 8 bytes of the array
-    *(UA_DateTime *)&largeData[60] = timestamp;
-
-    /* Create a variable node in the server’s address space */
-    UA_NodeId largeVariableNodeId = UA_NODEID_STRING(1, "LargeCustomVariable");
-    UA_VariableAttributes attr = UA_VariableAttributes_default;
-    attr.displayName = UA_LOCALIZEDTEXT("en-US", "LargeCustomVariable");
-    attr.dataType = UA_TYPES[UA_TYPES_BYTE].typeId;
-    attr.valueRank = 1; // Indicates an array
-    UA_UInt32 arrayDimensions[1] = {68};
-    attr.arrayDimensions = arrayDimensions;
-    attr.arrayDimensionsSize = 1;
-    UA_Variant_setArray(&attr.value, largeData, 68, &UA_TYPES[UA_TYPES_BYTE]);
-
-    UA_Server_addVariableNode(server, largeVariableNodeId,
-                              UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
-                              UA_NODEID_NUMERIC(0, UA_NS0ID_ORGANIZES),
-                              UA_QUALIFIEDNAME(1, "LargeCustomVariable"),
-                              UA_NODEID_NUMERIC(0, UA_NS0ID_BASEDATAVARIABLETYPE),
-                              attr, NULL, NULL);
-}
-
-void updateLargeCustomVariable(UA_Server *server)
-{
-    UA_NodeId largeVariableNodeId = UA_NODEID_STRING(1, "LargeCustomVariable");
-
-    UA_Byte largeData[68];
-    for (size_t i = 0; i < sizeof(largeData); i++)
-    {
-        largeData[i] = (UA_Byte)(i % 256); // Fill the array with sample data
-    }
-
-    /* Get the current timestamp */
-    UA_DateTime timestamp = UA_DateTime_now();
-
-    // Add the timestamp in the last 8 bytes of the array
-    *(UA_DateTime *)&largeData[60] = timestamp;
-
-    UA_Variant value;
-    UA_Variant_setArray(&value, largeData, 68, &UA_TYPES[UA_TYPES_BYTE]);
-
-    UA_StatusCode status = UA_Server_writeValue(server, largeVariableNodeId, value);
-    if (status == UA_STATUSCODE_GOOD)
-    {
-        printf("LargeCustomVariable updated successfully.\n");
-    }
-    else
-    {
-        printf("Failed to update LargeCustomVariable: %s\n", UA_StatusCode_name(status));
-    }
-}
 
 void addByteStringVariable(UA_Server *server)
 {
@@ -208,24 +127,6 @@ void addByteStringDataSetField(UA_Server *server)
                               &dataSetFieldConfig, &dataSetFieldIdent);
 }
 
-//  LargeDataSet
-static void
-addLargeDataSetField(UA_Server *server)
-{
-    /* Add a field to the PublishedDataSet linked to the large variable */
-    UA_NodeId dataSetFieldIdent;
-    UA_DataSetFieldConfig dataSetFieldConfig;
-    memset(&dataSetFieldConfig, 0, sizeof(UA_DataSetFieldConfig));
-    dataSetFieldConfig.dataSetFieldType = UA_PUBSUB_DATASETFIELD_VARIABLE;
-    dataSetFieldConfig.field.variable.fieldNameAlias = UA_STRING("LargeCustomVariable");
-    dataSetFieldConfig.field.variable.promotedField = false;
-    dataSetFieldConfig.field.variable.publishParameters.publishedVariable =
-        UA_NODEID_STRING(1, "LargeCustomVariable");
-    dataSetFieldConfig.field.variable.publishParameters.attributeId = UA_ATTRIBUTEID_VALUE;
-    UA_Server_addDataSetField(server, publishedDataSetIdent,
-                              &dataSetFieldConfig, &dataSetFieldIdent);
-}
-
 /**
  * **WriterGroup handling**
  *
@@ -239,7 +140,7 @@ addWriterGroup(UA_Server *server)
     UA_WriterGroupConfig writerGroupConfig;
     memset(&writerGroupConfig, 0, sizeof(UA_WriterGroupConfig));
     writerGroupConfig.name = UA_STRING("Demo WriterGroup");
-    writerGroupConfig.publishingInterval = 1111110;
+    writerGroupConfig.publishingInterval = 1000;
     writerGroupConfig.writerGroupId = 100;
     // writerGroupConfig.encodingMimeType = UA_PUBSUB_ENCODING_UADP;
 
@@ -305,6 +206,11 @@ addDataSetReader(UA_Server *server)
 {
     memset(&readerConfig, 0, sizeof(UA_DataSetReaderConfig));
     readerConfig.name = UA_STRING("DataSet Reader 1");
+    /* Parameters to filter which DataSetMessage has to be processed
+     * by the DataSetReader */
+    /* The following parameters are used to show that the data published by
+     * tutorial_pubsub_publish.c is being subscribed and is being updated in
+     * the information model */
     UA_UInt16 publisherIdentifier = 2235;
     readerConfig.publisherId.idType = UA_PUBLISHERIDTYPE_UINT16;
     readerConfig.publisherId.id.uint16 = publisherIdentifier;
@@ -331,10 +237,9 @@ onVariableValueChanged(UA_Server *server,
     (void)sessionContext;
     (void)nodeContext;
     (void)range;
-    printf("CHAMOU O CALL BACKKKKKKKK\n");
-    // indicate that the message was received back
-    dataReceived = true;
 
+    // publish echo when message is received
+    UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
     UA_Variant value;
     UA_Variant_init(&value);
 
@@ -345,9 +250,8 @@ onVariableValueChanged(UA_Server *server,
         // Verificar o tipo de dado e exibir o valor
         if (value.type == &UA_TYPES[UA_TYPES_BYTESTRING])
         {
-
             UA_ByteString *byteStringValue = (UA_ByteString *)value.data;
-            printf("ECHO Variable [%u] updated: UA_ByteString length=%zu, data=%s\n",
+            printf("Variable [%u] updated: UA_ByteString length=%zu, data=%s\n",
                    nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data);
         }
         else
@@ -407,7 +311,7 @@ addSubscribedVariables(UA_Server *server, UA_NodeId dataSetReaderId)
         vAttr.dataType = readerConfig.dataSetMetaData.fields[i].dataType;
 
         UA_NodeId newNode;
-        UA_Server_addVariableNode(server, UA_NODEID_NUMERIC(1, (UA_UInt32)i + 50001),
+        UA_Server_addVariableNode(server, UA_NODEID_NUMERIC(1, (UA_UInt32)i + 50000),
                                   folderId, UA_NS0ID(HASCOMPONENT),
                                   UA_QUALIFIEDNAME(1, (char *)readerConfig.dataSetMetaData.fields[i].name.data),
                                   UA_NS0ID(BASEDATAVARIABLETYPE),
@@ -462,12 +366,12 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *pubNetworkAddress
     UA_Server *server = UA_Server_new();
 
     // publish
-    addPubSubConnection(server, transportProfile, pubNetworkAddressUrl, &pubConnectionIdent, PUB);
-    addPublishedDataSet(server);
-    addByteStringVariable(server);
-    addByteStringDataSetField(server);
-    addWriterGroup(server);
-    addDataSetWriter(server);
+    // addPubSubConnection(server, transportProfile, pubNetworkAddressUrl, &pubConnectionIdent, PUB);
+    // addPublishedDataSet(server);
+    // addByteStringVariable(server);
+    // addByteStringDataSetField(server);
+    // addWriterGroup(server);
+    // addDataSetWriter(server);
 
     // subscribe
     addPubSubConnection(server, transportProfile, subNetworkAddressUrl, &subConnectionIdent, SUB);
@@ -478,35 +382,14 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *pubNetworkAddress
     /* Enable the PubSubComponents */
     UA_Server_enableAllPubSubComponents(server);
 
-    UA_StatusCode retval = UA_Server_run_startup(server);
-    UA_Server_run_iterate(server, true);
+    //     UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
 
-    printf("Servidor rodando...\n");
-    clock_t begin, finish;
-    begin = clock();
-
-    for (int i = 0; i < 10; i++)
-    {
-        dataReceived = false;
-        printf("publishing package number %d\n", i);
-        // trigger publish
-        UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
-        /*
-         while (!dataReceived)
-         {
-             printf("waiting response...\n");
-         }
-        */
-    }
-
-    finish = clock();
-    double time_spent = (double)(finish - begin) / CLOCKS_PER_SEC;
-    printf("duration was %f s\n", time_spent);
+    UA_Server_runUntilInterrupt(server);
 
     UA_Server_run_shutdown(server);
     /* Delete the server */
     UA_Server_delete(server);
-    return retval == UA_STATUSCODE_GOOD ? EXIT_SUCCESS : EXIT_FAILURE;
+    // return retval == UA_STATUSCODE_GOOD ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 int main(int argc, char **argv)
