@@ -326,7 +326,7 @@ int main(int argc, char **argv)
     UA_String transportProfile =
         UA_STRING("http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp");
     UA_NetworkAddressUrlDataType pubNetworkAddressUrl =
-        {UA_STRING_NULL, UA_STRING("opc.udp://224.0.0.22:4842/")};
+        {UA_STRING_NULL, UA_STRING("opc.udp://224.0.0.22:4841/")};
     UA_NetworkAddressUrlDataType subNetworkAddressUrl =
         {UA_STRING_NULL, UA_STRING("opc.udp://224.0.0.22:4840/")};
 
