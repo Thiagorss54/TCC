@@ -21,3 +21,9 @@ target_link_libraries(udp_pubsub_publish open62541)
 add_executable(udp_pubsub_subscribe udp_pubsub_subscribe.c)
 target_link_libraries(udp_pubsub_subscribe open62541)
 
+add_executable(server_udp_pubsub server_udp_pubsub.c)
+target_link_libraries(server_udp_pubsub open62541)
+
+add_executable(client_udp_pubsub client_udp_pubsub.c)
+target_link_libraries(client_udp_pubsub open62541)
+

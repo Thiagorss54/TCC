@@ -59,12 +59,12 @@ static void
 addDataSetReader(UA_Server *server)
 {
     memset(&readerConfig, 0, sizeof(UA_DataSetReaderConfig));
-    readerConfig.name = UA_STRING("DataSet Reader 1");
-    UA_UInt16 publisherIdentifier = 2234;
+    readerConfig.name = UA_STRING("DataSet Reader 2");
+    UA_UInt16 publisherIdentifier = 2240;
     readerConfig.publisherId.idType = UA_PUBLISHERIDTYPE_UINT16;
     readerConfig.publisherId.id.uint16 = publisherIdentifier;
-    readerConfig.writerGroupId = 100;
-    readerConfig.dataSetWriterId = 62541;
+    readerConfig.writerGroupId = 101;
+    readerConfig.dataSetWriterId = 62542;
 
     /* Setting up Meta data configuration in DataSetReader */
     fillTestDataSetMetaData(&readerConfig.dataSetMetaData);
@@ -220,7 +220,7 @@ int main(int argc, char **argv)
     UA_String transportProfile =
         UA_STRING("http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp");
     UA_NetworkAddressUrlDataType subNetworkAddressUrl =
-        {UA_STRING_NULL, UA_STRING("opc.udp://224.0.0.22:4840/")};
+        {UA_STRING_NULL, UA_STRING("opc.udp://224.0.0.22:4841/")};
 
     return run(&transportProfile, &subNetworkAddressUrl);
 }
