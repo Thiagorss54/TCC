@@ -6,6 +6,50 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <time.h>
+#include <ua_pubsub_internal.h>
+
+int timeval_subtract(struct timespec *result, struct timespec *x, struct timespec *y)
+{
+    /* Perform the carry for the later subtraction by updating y. */
+    if (x->tv_nsec < y->tv_nsec)
+    {
+        int nsec = (y->tv_nsec - x->tv_nsec) / 1000000000 + 1;
+        y->tv_nsec -= 1000000000 * nsec;
+        y->tv_sec += nsec;
+    }
+    if (x->tv_nsec - y->tv_nsec > 1000000000)
+    {
+        int nsec = (x->tv_nsec - y->tv_nsec) / 1000000000;
+        y->tv_nsec += 1000000000 * nsec;
+        y->tv_sec -= nsec;
+    }
+
+    /* Compute the time remaining to wait.
+       tv_usec is certainly positive. */
+    result->tv_sec = x->tv_sec - y->tv_sec;
+    result->tv_nsec = x->tv_nsec - y->tv_nsec;
+
+    /* Return 1 if result is negative. */
+    return x->tv_sec < y->tv_sec;
+}
+
+// -Method to get second resolution timestamp
+double time_measure_get_seconds()
+{
+    struct timespec ts2;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &ts2);
+    return ts2.tv_sec;
+}
+
+#define TIME_MEASURE_START(X) clock_gettime(CLOCK_MONOTONIC_RAW, &X)
+#define TIME_MEASURE_DIFF_USEC(X, TARGET)                                   \
+    {                                                                       \
+        struct timespec _diff_time_end, _diff_time;                         \
+        clock_gettime(CLOCK_MONOTONIC_RAW, &_diff_time_end);                \
+        timeval_subtract(&_diff_time, &_diff_time_end, &X);                 \
+        (TARGET) = _diff_time.tv_sec * 1000000 + _diff_time.tv_nsec / 1000; \
+    }
 
 typedef enum
 {
@@ -78,8 +122,6 @@ onVariableValueChanged(UA_Server *server,
     (void)nodeContext;
     (void)range;
 
-    // publish echo when message is received
-    // UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
     UA_Variant value;
     UA_Variant_init(&value);
 
@@ -91,6 +133,7 @@ onVariableValueChanged(UA_Server *server,
         if (value.type == &UA_TYPES[UA_TYPES_BYTESTRING])
         {
             UA_ByteString *byteStringValue = (UA_ByteString *)value.data;
+            dataReceived = true;
             printf("Variable [%u] updated: UA_ByteString length=%zu, data=%s\n",
                    nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data);
         }
@@ -309,7 +352,34 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *pubNetworkAddress
 
     UA_Server_enableAllPubSubComponents(server);
 
-    UA_Server_runUntilInterrupt(server);
+    UA_StatusCode retval = UA_Server_run_startup(server);
+    UA_Server_run_iterate(server, true);
+
+    long long int duration_echo;
+    struct timespec time_start;
+    TIME_MEASURE_START(time_start);
+    for (int i = 0; i < 100000; i++)
+    {
+        struct timespec time_start;
+        TIME_MEASURE_START(time_start);
+
+        dataReceived = false;
+        UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
+        printf("Mensagem publicada!\n");
+        int contador = 0;
+        while (!dataReceived)
+        {
+            UA_Server_run_iterate(server, true);
+            contador++;
+        }
+        TIME_MEASURE_DIFF_USEC(time_start, duration_echo)
+        // printf("o while executou %d vezes\n", contador);
+        printf("Mensagem recebida - %lld\n", duration_echo);
+
+        usleep(1000000);
+    }
+
+    UA_Server_run_shutdown(server);
     UA_Server_delete(server);
     return 0;
 }

@@ -80,7 +80,7 @@ onVariableValueChanged(UA_Server *server,
     (void)range;
 
     // publish echo when message is received
-    // UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
+    UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
     UA_Variant value;
     UA_Variant_init(&value);
 
@@ -255,7 +255,7 @@ addWriterGroup(UA_Server *server)
     UA_WriterGroupConfig writerGroupConfig;
     memset(&writerGroupConfig, 0, sizeof(UA_WriterGroupConfig));
     writerGroupConfig.name = UA_STRING("Demo WriterGroup");
-    writerGroupConfig.publishingInterval = 1000;
+    writerGroupConfig.publishingInterval = 100000;
     writerGroupConfig.writerGroupId = 101;
     // writerGroupConfig.encodingMimeType = UA_PUBSUB_ENCODING_UADP;
 
@@ -318,7 +318,7 @@ int main(int argc, char **argv)
 
     for (int i = 0; i < (int)sizeof(customSizeByte); i++)
     {
-        customSizeByte[i] = 'o';
+        customSizeByte[i] = 'v';
     }
     byteStringPayloadData.length = (int)pow(2, max_message_pow);
     byteStringPayloadData.data = &customSizeByte[0];
@@ -326,7 +326,7 @@ int main(int argc, char **argv)
     UA_String transportProfile =
         UA_STRING("http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp");
     UA_NetworkAddressUrlDataType pubNetworkAddressUrl =
-        {UA_STRING_NULL, UA_STRING("opc.udp://224.0.0.22:4841/")};
+        {UA_STRING_NULL, UA_STRING("opc.udp://224.0.0.22:4842/")};
     UA_NetworkAddressUrlDataType subNetworkAddressUrl =
         {UA_STRING_NULL, UA_STRING("opc.udp://224.0.0.22:4840/")};
 
