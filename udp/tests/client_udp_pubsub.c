@@ -9,6 +9,8 @@
 #include <time.h>
 #include <ua_pubsub_internal.h>
 
+#define REPETITIONS 10
+
 int timeval_subtract(struct timespec *result, struct timespec *x, struct timespec *y)
 {
     /* Perform the carry for the later subtraction by updating y. */
@@ -58,8 +60,10 @@ typedef enum
 } EntityType;
 
 bool dataReceived = false;
-int max_message_pow = 2;
+int max_message_pow = 10;
+
 UA_ByteString byteStringPayloadData = {0, NULL};
+UA_ByteString fullPayloadData = {0, NULL};
 
 UA_NodeId pubConnectionIdent, publishedDataSetIdent, writerGroupIdent,
     dataSetWriterIdent;
@@ -68,6 +72,7 @@ UA_NodeId subConnectionIdent;
 UA_NodeId readerGroupIdentifier;
 UA_NodeId readerIdentifier;
 UA_DataSetReaderConfig readerConfig;
+
 static void fillTestDataSetMetaData(UA_DataSetMetaDataType *pMetaData);
 
 void addByteStringDataSetField(UA_Server *server);
@@ -231,9 +236,6 @@ fillTestDataSetMetaData(UA_DataSetMetaDataType *pMetaData)
     pMetaData->fields[0].valueRank = -1;
 }
 
-UA_NodeId pubConnectionIdent, publishedDataSetIdent, writerGroupIdent,
-    dataSetWriterIdent;
-
 static void
 addPubSubConnection(UA_Server *server, UA_String *transportProfile,
                     UA_NetworkAddressUrlDataType *networkAddressUrl, UA_NodeId *connectionIdent, EntityType type)
@@ -300,7 +302,7 @@ addWriterGroup(UA_Server *server)
     UA_WriterGroupConfig writerGroupConfig;
     memset(&writerGroupConfig, 0, sizeof(UA_WriterGroupConfig));
     writerGroupConfig.name = UA_STRING("Demo WriterGroup");
-    writerGroupConfig.publishingInterval = 1000;
+    writerGroupConfig.publishingInterval = 10000000;
     writerGroupConfig.writerGroupId = 100;
     // writerGroupConfig.encodingMimeType = UA_PUBSUB_ENCODING_UADP;
 
@@ -332,6 +334,74 @@ addDataSetWriter(UA_Server *server)
                                &dataSetWriterConfig, &dataSetWriterIdent);
 }
 
+void executePubSubComunication(UA_Server *server, long long int *duration)
+{
+    struct timespec time_start;
+    dataReceived = false;
+
+    TIME_MEASURE_START(time_start);
+
+    UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
+    printf("Mensagem publicada!\n");
+
+    while (!dataReceived)
+    {
+        UA_Server_run_iterate(server, true);
+    }
+
+    TIME_MEASURE_DIFF_USEC(time_start, *duration);
+    // printf("o while executou %d vezes\n", contador);
+    printf("Mensagem recebida - %lld\n", *duration);
+}
+
+void runTests(UA_Server *server)
+{
+
+    long long int duration[max_message_pow][REPETITIONS];
+
+    for (size_t power = 1; power < (size_t)max_message_pow; power++)
+    {
+        int messageLength = (int)pow(2, power);
+        byteStringPayloadData.length = (size_t)messageLength;
+
+        // Writing message with new size on the nodeId
+        UA_Variant value;
+        UA_Variant_init(&value);
+        UA_Variant_setScalar(&value, &byteStringPayloadData, &UA_TYPES[UA_TYPES_BYTESTRING]);
+        UA_Server_writeValue(server, UA_NODEID_STRING(1, "ByteStringVariable"), value);
+
+        for (int i = 0; i < REPETITIONS; i++)
+        {
+            executePubSubComunication(server, &(duration[power - 1][i]));
+        }
+    }
+
+    // Write data on file
+
+    const char *filename = "dataColected.csv";
+    FILE *file = fopen(filename, "w");
+    if (file == NULL)
+    {
+        perror("Erro ao abrir o arquivo");
+        return;
+    }
+
+    fprintf(file, "Iteration, PayloadSize [bytes], Duration [usec]");
+
+    for (int power = 1; power < max_message_pow; power++)
+    {
+        int size = (int)pow(2, power);
+        for (int i = 0; i < REPETITIONS; i++)
+        {
+            fprintf(file, "%d, %d, %lld\n", i, size, duration[power - 1][i]);
+        }
+    }
+
+    fclose(file);
+
+    printf("Arquivo '%s' criado com sucesso!\n", filename);
+}
+
 static int
 run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *pubNetworkAddressUrl, UA_NetworkAddressUrlDataType *subNetworkAddressUrl)
 {
@@ -352,32 +422,10 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *pubNetworkAddress
 
     UA_Server_enableAllPubSubComponents(server);
 
-    UA_StatusCode retval = UA_Server_run_startup(server);
+    UA_Server_run_startup(server);
     UA_Server_run_iterate(server, true);
 
-    long long int duration_echo;
-    struct timespec time_start;
-    TIME_MEASURE_START(time_start);
-    for (int i = 0; i < 100000; i++)
-    {
-        struct timespec time_start;
-        TIME_MEASURE_START(time_start);
-
-        dataReceived = false;
-        UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
-        printf("Mensagem publicada!\n");
-        int contador = 0;
-        while (!dataReceived)
-        {
-            UA_Server_run_iterate(server, true);
-            contador++;
-        }
-        TIME_MEASURE_DIFF_USEC(time_start, duration_echo)
-        // printf("o while executou %d vezes\n", contador);
-        printf("Mensagem recebida - %lld\n", duration_echo);
-
-        usleep(1000000);
-    }
+    runTests(server);
 
     UA_Server_run_shutdown(server);
     UA_Server_delete(server);
@@ -392,8 +440,9 @@ int main(int argc, char **argv)
     {
         customSizeByte[i] = '*';
     }
-    byteStringPayloadData.length = (int)pow(2, max_message_pow);
-    byteStringPayloadData.data = &customSizeByte[0];
+    fullPayloadData.length = (int)pow(2, max_message_pow);
+    fullPayloadData.data = &customSizeByte[0];
+    byteStringPayloadData.data = fullPayloadData.data;
 
     UA_String transportProfile =
         UA_STRING("http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp");

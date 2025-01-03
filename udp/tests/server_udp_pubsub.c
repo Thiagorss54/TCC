@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <time.h>
 
 typedef enum
 {
@@ -25,7 +26,10 @@ UA_NodeId readerGroupIdentifier;
 UA_NodeId readerIdentifier;
 UA_DataSetReaderConfig readerConfig;
 
-static void fillTestDataSetMetaData(UA_DataSetMetaDataType *pMetaData);
+UA_NodeId byteStringNodeId;
+
+static void
+fillTestDataSetMetaData(UA_DataSetMetaDataType *pMetaData);
 
 void addByteStringDataSetField(UA_Server *server);
 
@@ -79,8 +83,6 @@ onVariableValueChanged(UA_Server *server,
     (void)nodeContext;
     (void)range;
 
-    // publish echo when message is received
-    UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
     UA_Variant value;
     UA_Variant_init(&value);
 
@@ -88,12 +90,21 @@ onVariableValueChanged(UA_Server *server,
     UA_StatusCode retval = UA_Server_readValue(server, *nodeId, &value);
     if (retval == UA_STATUSCODE_GOOD)
     {
+
         // Verificar o tipo de dado e exibir o valor
         if (value.type == &UA_TYPES[UA_TYPES_BYTESTRING])
         {
             UA_ByteString *byteStringValue = (UA_ByteString *)value.data;
             printf("Variable [%u] updated: UA_ByteString length=%zu, data=%s\n",
                    nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data);
+
+            UA_Variant content;
+            UA_Variant_init(&content);
+            UA_Variant_setScalar(&content, byteStringValue, &UA_TYPES[UA_TYPES_BYTESTRING]);
+            UA_Server_writeValue(server, byteStringNodeId, content);
+
+            // publish echo when message is received
+            UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
         }
         else
         {
@@ -217,7 +228,8 @@ addPublishedDataSet(UA_Server *server)
 void addByteStringVariable(UA_Server *server)
 {
 
-    UA_NodeId byteStringNodeId = UA_NODEID_STRING(1, "ByteStringVariable");
+    byteStringNodeId = UA_NODEID_STRING(1, "ByteStringVariable");
+
     UA_VariableAttributes attr = UA_VariableAttributes_default;
     attr.displayName = UA_LOCALIZEDTEXT("en-US", "ByteStringVariable");
     attr.dataType = UA_TYPES[UA_TYPES_BYTESTRING].typeId;
@@ -299,6 +311,7 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *pubNetworkAddress
     addByteStringDataSetField(server);
     addWriterGroup(server);
     addDataSetWriter(server);
+
     // subscribe
     addPubSubConnection(server, transportProfile, subNetworkAddressUrl, &subConnectionIdent, SUB);
     addReaderGroup(server);
@@ -314,15 +327,6 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *pubNetworkAddress
 
 int main(int argc, char **argv)
 {
-    UA_Byte customSizeByte[(int)pow(2, max_message_pow)];
-
-    for (int i = 0; i < (int)sizeof(customSizeByte); i++)
-    {
-        customSizeByte[i] = 'v';
-    }
-    byteStringPayloadData.length = (int)pow(2, max_message_pow);
-    byteStringPayloadData.data = &customSizeByte[0];
-
     UA_String transportProfile =
         UA_STRING("http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp");
     UA_NetworkAddressUrlDataType pubNetworkAddressUrl =
