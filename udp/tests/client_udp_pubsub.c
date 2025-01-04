@@ -9,7 +9,7 @@
 #include <time.h>
 #include <ua_pubsub_internal.h>
 
-#define REPETITIONS 10
+#define REPETITIONS 1000
 
 int timeval_subtract(struct timespec *result, struct timespec *x, struct timespec *y)
 {
@@ -139,8 +139,8 @@ onVariableValueChanged(UA_Server *server,
         {
             UA_ByteString *byteStringValue = (UA_ByteString *)value.data;
             dataReceived = true;
-            printf("Variable [%u] updated: UA_ByteString length=%zu, data=%s\n",
-                   nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data);
+            // printf("Variable [%u] updated: UA_ByteString length=%zu, data=%s\n",
+            //        nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data);
         }
         else
         {
@@ -342,7 +342,6 @@ void executePubSubComunication(UA_Server *server, long long int *duration)
     TIME_MEASURE_START(time_start);
 
     UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
-    printf("Mensagem publicada!\n");
 
     while (!dataReceived)
     {
@@ -350,17 +349,19 @@ void executePubSubComunication(UA_Server *server, long long int *duration)
     }
 
     TIME_MEASURE_DIFF_USEC(time_start, *duration);
-    // printf("o while executou %d vezes\n", contador);
-    printf("Mensagem recebida - %lld\n", *duration);
+    // printf("Mensagem recebida - %lld\n", *duration);
 }
 
 void runTests(UA_Server *server)
 {
 
+    long long int totalTime;
     long long int duration[max_message_pow][REPETITIONS];
+    double rtt;
 
     for (size_t power = 1; power < (size_t)max_message_pow; power++)
     {
+        totalTime = 0;
         int messageLength = (int)pow(2, power);
         byteStringPayloadData.length = (size_t)messageLength;
 
@@ -373,7 +374,12 @@ void runTests(UA_Server *server)
         for (int i = 0; i < REPETITIONS; i++)
         {
             executePubSubComunication(server, &(duration[power - 1][i]));
+            totalTime += duration[power - 1][i];
         }
+
+        rtt = (double)totalTime / REPETITIONS; // getting value in usec
+
+        printf("payload length %d bytes - average rtt/request  = %.2f usec\n", messageLength, rtt);
     }
 
     // Write data on file
@@ -386,7 +392,7 @@ void runTests(UA_Server *server)
         return;
     }
 
-    fprintf(file, "Iteration, PayloadSize [bytes], Duration [usec]");
+    fprintf(file, "Iteration, PayloadSize [bytes], Duration [usec]\n");
 
     for (int power = 1; power < max_message_pow; power++)
     {

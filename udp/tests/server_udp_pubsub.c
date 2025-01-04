@@ -95,8 +95,8 @@ onVariableValueChanged(UA_Server *server,
         if (value.type == &UA_TYPES[UA_TYPES_BYTESTRING])
         {
             UA_ByteString *byteStringValue = (UA_ByteString *)value.data;
-            printf("Variable [%u] updated: UA_ByteString length=%zu, data=%s\n",
-                   nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data);
+            // printf("Variable [%u] updated: UA_ByteString length=%zu, data=%s\n",
+            //        nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data);
 
             UA_Variant content;
             UA_Variant_init(&content);
