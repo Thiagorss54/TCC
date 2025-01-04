@@ -107,7 +107,7 @@ onVariableValueChanged(UA_Server *server,
             // publish echo when message is received
             UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
             msgCount++;
-            printf("enviando echo msg num %d", msgCount);
+            printf("enviando echo msg num %d\n", msgCount);
         }
         else
         {
