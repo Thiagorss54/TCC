@@ -60,7 +60,7 @@ typedef enum
 } EntityType;
 
 bool dataReceived = false;
-int max_message_pow = 16;
+int max_message_pow = 15;
 
 UA_ByteString byteStringPayloadData = {0, NULL};
 UA_ByteString fullPayloadData = {0, NULL};
@@ -141,6 +141,7 @@ onVariableValueChanged(UA_Server *server,
             dataReceived = true;
             // printf("Variable [%u] updated: UA_ByteString length=%zu, data=%s\n",
             //        nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data);
+            printf("callback\n");
         }
         else
         {
@@ -412,6 +413,68 @@ void runTests(UA_Server *server)
     printf("Arquivo '%s' criado com sucesso!\n", filename);
 }
 
+void runTest2(UA_Server *server)
+{
+
+    long long int totalTime;
+    long long int duration[max_message_pow][REPETITIONS];
+    double rtt;
+    int msgNumber = 1;
+
+    int power = 1;
+    // for (size_t power = 1; power < (size_t)max_message_pow; power++)
+    //{
+    totalTime = 0;
+    int messageLength = (int)pow(2, max_message_pow);
+    byteStringPayloadData.length = (size_t)messageLength;
+
+    // Writing message with new size on the nodeId
+    UA_Variant value;
+    UA_Variant_init(&value);
+    UA_Variant_setScalar(&value, &byteStringPayloadData, &UA_TYPES[UA_TYPES_BYTESTRING]);
+    UA_Server_writeValue(server, UA_NODEID_STRING(1, "ByteStringVariable"), value);
+
+    for (int i = 0; i < 5; i++)
+    {
+        printf("mensagem num %d de tamanho %d publicada. aguardando resposta...\n", i + 1, messageLength);
+        executePubSubComunication(server, &(duration[power - 1][i]));
+        printf("resposta %d recebida\n", msgNumber);
+        msgNumber++;
+        totalTime += duration[power - 1][i];
+        usleep(10000000);
+    }
+
+    rtt = (double)totalTime / REPETITIONS; // getting value in usec
+
+    printf("payload length %d bytes - average rtt/request  = %.2f usec\n", messageLength, rtt);
+    // }
+
+    // Write data on file
+
+    const char *filename = "dataTestColected.csv";
+    FILE *file = fopen(filename, "w");
+    if (file == NULL)
+    {
+        perror("Erro ao abrir o arquivo");
+        return;
+    }
+
+    fprintf(file, "Iteration, PayloadSize [bytes], Duration [usec]\n");
+
+    // (int power = 1; power < max_message_pow; power++)
+    // {
+    int size = (int)pow(2, max_message_pow);
+    for (int i = 0; i < REPETITIONS; i++)
+    {
+        fprintf(file, "%d, %d, %lld\n", i, size, duration[power - 1][i]);
+    }
+    //}
+
+    fclose(file);
+
+    printf("Arquivo '%s' criado com sucesso!\n", filename);
+}
+
 static int
 run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *pubNetworkAddressUrl, UA_NetworkAddressUrlDataType *subNetworkAddressUrl)
 {
@@ -435,7 +498,8 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *pubNetworkAddress
     UA_Server_run_startup(server);
     UA_Server_run_iterate(server, true);
 
-    runTests(server);
+    // runTests(server);
+    runTest2(server);
 
     UA_Server_run_shutdown(server);
     UA_Server_delete(server);
