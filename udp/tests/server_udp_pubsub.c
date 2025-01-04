@@ -28,6 +28,7 @@ UA_DataSetReaderConfig readerConfig;
 
 UA_NodeId byteStringNodeId;
 
+int msgCount = 0;
 static void
 fillTestDataSetMetaData(UA_DataSetMetaDataType *pMetaData);
 
@@ -105,6 +106,8 @@ onVariableValueChanged(UA_Server *server,
 
             // publish echo when message is received
             UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
+            msgCount++;
+            printf("enviando echo msg num %d", msgCount);
         }
         else
         {
@@ -267,7 +270,7 @@ addWriterGroup(UA_Server *server)
     UA_WriterGroupConfig writerGroupConfig;
     memset(&writerGroupConfig, 0, sizeof(UA_WriterGroupConfig));
     writerGroupConfig.name = UA_STRING("Demo WriterGroup");
-    writerGroupConfig.publishingInterval = 100000;
+    writerGroupConfig.publishingInterval = 10000000000;
     writerGroupConfig.writerGroupId = 101;
     // writerGroupConfig.encodingMimeType = UA_PUBSUB_ENCODING_UADP;
 

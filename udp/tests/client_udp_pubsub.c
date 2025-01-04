@@ -60,7 +60,7 @@ typedef enum
 } EntityType;
 
 bool dataReceived = false;
-int max_message_pow = 10;
+int max_message_pow = 16;
 
 UA_ByteString byteStringPayloadData = {0, NULL};
 UA_ByteString fullPayloadData = {0, NULL};
@@ -302,7 +302,7 @@ addWriterGroup(UA_Server *server)
     UA_WriterGroupConfig writerGroupConfig;
     memset(&writerGroupConfig, 0, sizeof(UA_WriterGroupConfig));
     writerGroupConfig.name = UA_STRING("Demo WriterGroup");
-    writerGroupConfig.publishingInterval = 10000000;
+    writerGroupConfig.publishingInterval = 10000000000;
     writerGroupConfig.writerGroupId = 100;
     // writerGroupConfig.encodingMimeType = UA_PUBSUB_ENCODING_UADP;
 
@@ -358,6 +358,7 @@ void runTests(UA_Server *server)
     long long int totalTime;
     long long int duration[max_message_pow][REPETITIONS];
     double rtt;
+    int msgNumber = 1;
 
     for (size_t power = 1; power < (size_t)max_message_pow; power++)
     {
@@ -373,7 +374,10 @@ void runTests(UA_Server *server)
 
         for (int i = 0; i < REPETITIONS; i++)
         {
+            printf("mensagem num %d de tamanho %d publicada. aguardando resposta...\n", i + 1, messageLength);
             executePubSubComunication(server, &(duration[power - 1][i]));
+            printf("resposta %d recebida\n", msgNumber);
+            msgNumber++;
             totalTime += duration[power - 1][i];
         }
 
