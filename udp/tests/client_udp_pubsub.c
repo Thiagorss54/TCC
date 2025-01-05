@@ -129,6 +129,7 @@ onVariableValueChanged(UA_Server *server,
 
     UA_Variant value;
     UA_Variant_init(&value);
+    printf("callback\n");
 
     // Ler o valor atualizado da variável
     UA_StatusCode retval = UA_Server_readValue(server, *nodeId, &value);
@@ -141,7 +142,6 @@ onVariableValueChanged(UA_Server *server,
             dataReceived = true;
             // printf("Variable [%u] updated: UA_ByteString length=%zu, data=%s\n",
             //        nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data);
-            printf("callback\n");
         }
         else
         {
@@ -344,10 +344,10 @@ void executePubSubComunication(UA_Server *server, long long int *duration)
 
     UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
 
-    while (!dataReceived)
-    {
-        UA_Server_run_iterate(server, true);
-    }
+    // while (!dataReceived)
+    // {
+    //     UA_Server_run_iterate(server, true);
+    // }
 
     TIME_MEASURE_DIFF_USEC(time_start, *duration);
     // printf("Mensagem recebida - %lld\n", *duration);
@@ -428,20 +428,21 @@ void runTest2(UA_Server *server)
     int messageLength = (int)pow(2, max_message_pow);
     byteStringPayloadData.length = (size_t)messageLength;
 
-    // Writing message with new size on the nodeId
     UA_Variant value;
     UA_Variant_init(&value);
-    UA_Variant_setScalar(&value, &byteStringPayloadData, &UA_TYPES[UA_TYPES_BYTESTRING]);
-    UA_Server_writeValue(server, UA_NODEID_STRING(1, "ByteStringVariable"), value);
-
     for (int i = 0; i < 5; i++)
     {
+        // Writing message with new size on the nodeId
+        byteStringPayloadData.data[0] = '0' + 97 + i;
+        UA_Variant_setScalar(&value, &byteStringPayloadData, &UA_TYPES[UA_TYPES_BYTESTRING]);
+        UA_Server_writeValue(server, UA_NODEID_STRING(1, "ByteStringVariable"), value);
+
         printf("mensagem num %d de tamanho %d publicada. aguardando resposta...\n", i + 1, messageLength);
         executePubSubComunication(server, &(duration[power - 1][i]));
         printf("resposta %d recebida\n", msgNumber);
         msgNumber++;
         totalTime += duration[power - 1][i];
-        usleep(10000000);
+        // usleep(10000000);
     }
 
     rtt = (double)totalTime / REPETITIONS; // getting value in usec
@@ -500,6 +501,11 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *pubNetworkAddress
 
     // runTests(server);
     runTest2(server);
+
+    while (true)
+    {
+        UA_Server_run_iterate(server, true);
+    }
 
     UA_Server_run_shutdown(server);
     UA_Server_delete(server);
