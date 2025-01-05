@@ -432,6 +432,7 @@ void runTest2(UA_Server *server)
     for (int i = 0; i < 5; i++)
     {
         // Writing message with new size on the nodeId
+        int id = i % 127;
         byteStringPayloadData.data[0] = '0' + i;
         UA_Variant_setScalar(&value, &byteStringPayloadData, &UA_TYPES[UA_TYPES_BYTESTRING]);
         UA_Server_writeValue(server, UA_NODEID_STRING(1, "ByteStringVariable"), value);

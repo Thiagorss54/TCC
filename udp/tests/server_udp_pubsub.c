@@ -97,18 +97,18 @@ onVariableValueChanged(UA_Server *server,
         if (value.type == &UA_TYPES[UA_TYPES_BYTESTRING])
         {
             UA_ByteString *byteStringValue = (UA_ByteString *)value.data;
-            printf("Variable [%u] updated: UA_ByteString length=%zu, data=%s\n",
-                   nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data);
+            printf("Variable [%u] updated: UA_ByteString length=%zu, data=%c\n",
+                   nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data[0]);
 
             UA_Variant content;
             UA_Variant_init(&content);
             UA_Variant_setScalar(&content, byteStringValue, &UA_TYPES[UA_TYPES_BYTESTRING]);
             UA_Server_writeValue(server, byteStringNodeId, content);
-            UA_Variant_clear(&value);
 
             // publish echo when message is received
             if (byteStringValue->data[0] != lastMessageId)
             {
+                printf("entrou aqui!\n");
                 UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
                 msgCount++;
                 lastMessageId = byteStringValue->data[0];
