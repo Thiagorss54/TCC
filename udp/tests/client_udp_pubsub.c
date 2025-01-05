@@ -73,6 +73,8 @@ UA_NodeId readerGroupIdentifier;
 UA_NodeId readerIdentifier;
 UA_DataSetReaderConfig readerConfig;
 
+char currentMessageId = ' ';
+
 static void fillTestDataSetMetaData(UA_DataSetMetaDataType *pMetaData);
 
 void addByteStringDataSetField(UA_Server *server);
@@ -138,9 +140,13 @@ onVariableValueChanged(UA_Server *server,
         if (value.type == &UA_TYPES[UA_TYPES_BYTESTRING])
         {
             UA_ByteString *byteStringValue = (UA_ByteString *)value.data;
-            dataReceived = true;
-            printf("Variable [%u] updated: UA_ByteString length=%zu, data=%c\n",
-                   nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data[0]);
+
+            if (byteStringValue->data[0] == currentMessageId)
+            {
+                dataReceived = true;
+                printf("Variable [%u] updated: UA_ByteString length=%zu, data=%c\n",
+                       nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data[0]);
+            }
         }
         else
         {
@@ -343,13 +349,13 @@ void executePubSubComunication(UA_Server *server, long long int *duration)
 
     UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
 
-    // while (!dataReceived)
-    // {
-    //     UA_Server_run_iterate(server, true);
-    // }
+    while (!dataReceived)
+    {
+        UA_Server_run_iterate(server, true);
+    }
 
     TIME_MEASURE_DIFF_USEC(time_start, *duration);
-    // printf("Mensagem recebida - %lld\n", *duration);
+    printf("Mensagem recebida - %lld\n", *duration);
 }
 
 void runTests(UA_Server *server)
@@ -358,7 +364,7 @@ void runTests(UA_Server *server)
     long long int totalTime;
     long long int duration[max_message_pow][REPETITIONS];
     double rtt;
-    int msgNumber = 1;
+    int msgNumber = 0;
 
     for (size_t power = 1; power < (size_t)max_message_pow; power++)
     {
@@ -374,7 +380,14 @@ void runTests(UA_Server *server)
 
         for (int i = 0; i < REPETITIONS; i++)
         {
-            printf("mensagem num %d de tamanho %d publicada. aguardando resposta...\n", i + 1, messageLength);
+            // Adding id to message
+            int id = msgNumber % 75;
+            currentMessageId = '0' + id;
+            byteStringPayloadData.data[0] = currentMessageId;
+            UA_Variant_setScalar(&value, &byteStringPayloadData, &UA_TYPES[UA_TYPES_BYTESTRING]);
+            UA_Server_writeValue(server, UA_NODEID_STRING(1, "ByteStringVariable"), value);
+
+            printf("mensagem num %d de tamanho %d publicada id %c. aguardando resposta...\n", i + 1, messageLength, currentMessageId);
             executePubSubComunication(server, &(duration[power - 1][i]));
             printf("resposta %d recebida\n", msgNumber);
             msgNumber++;
@@ -433,11 +446,11 @@ void runTest2(UA_Server *server)
     {
         // Writing message with new size on the nodeId
         int id = i % 127;
-        byteStringPayloadData.data[0] = '0' + i;
+        byteStringPayloadData.data[0] = '0' + id;
         UA_Variant_setScalar(&value, &byteStringPayloadData, &UA_TYPES[UA_TYPES_BYTESTRING]);
         UA_Server_writeValue(server, UA_NODEID_STRING(1, "ByteStringVariable"), value);
 
-        printf("mensagem num %d de tamanho %d publicada. aguardando resposta...\n", i + 1, messageLength);
+        printf("mensagem num %d de tamanho %d id %c publicada. aguardando resposta...\n", i + 1, byteStringPayloadData.data[0], messageLength);
         executePubSubComunication(server, &(duration[power - 1][i]));
         printf("resposta %d recebida\n", msgNumber);
         msgNumber++;
@@ -499,13 +512,8 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *pubNetworkAddress
     UA_Server_run_startup(server);
     UA_Server_run_iterate(server, true);
 
-    // runTests(server);
-    runTest2(server);
-
-    while (true)
-    {
-        UA_Server_run_iterate(server, true);
-    }
+    runTests(server);
+    // runTest2(server);
 
     UA_Server_run_shutdown(server);
     UA_Server_delete(server);
