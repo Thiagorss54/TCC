@@ -27,6 +27,7 @@ UA_NodeId readerIdentifier;
 UA_DataSetReaderConfig readerConfig;
 
 UA_NodeId byteStringNodeId;
+char lastMessageId = ' ';
 
 int msgCount = 0;
 static void
@@ -103,11 +104,16 @@ onVariableValueChanged(UA_Server *server,
             UA_Variant_init(&content);
             UA_Variant_setScalar(&content, byteStringValue, &UA_TYPES[UA_TYPES_BYTESTRING]);
             UA_Server_writeValue(server, byteStringNodeId, content);
+            UA_Variant_clear(&value);
 
             // publish echo when message is received
-            UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
-            msgCount++;
-            printf("enviando echo msg num %d\n", msgCount);
+            if (byteStringValue->data[0] != lastMessageId)
+            {
+                UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
+                msgCount++;
+                lastMessageId = byteStringValue->data[0];
+                printf("enviando echo msg num %d\n", msgCount);
+            }
         }
         else
         {
