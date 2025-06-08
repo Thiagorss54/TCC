@@ -15,15 +15,14 @@ include_directories(${CMAKE_SOURCE_DIR}/libs/open62541/src/pubsub)
 include_directories(${CMAKE_SOURCE_DIR}/libs/open62541/src/server)
 
 
-add_executable(udp_pubsub_publish udp_pubsub_publish.c)
-target_link_libraries(udp_pubsub_publish open62541)
-
-add_executable(udp_pubsub_subscribe udp_pubsub_subscribe.c)
-target_link_libraries(udp_pubsub_subscribe open62541)
-
 add_executable(server_udp_pubsub server_udp_pubsub.c)
 target_link_libraries(server_udp_pubsub open62541)
 
 add_executable(client_udp_pubsub client_udp_pubsub.c)
 target_link_libraries(client_udp_pubsub open62541)
 
+add_executable(publish_mqtt tutorial_pubsub_mqtt_publish.c)
+target_link_libraries(publish_mqtt open62541)
+
+add_executable(subscribe_mqtt tutorial_pubsub_mqtt_subscribe.c)
+target_link_libraries(subscribe_mqtt open62541)

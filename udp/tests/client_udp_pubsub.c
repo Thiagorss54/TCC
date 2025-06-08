@@ -9,7 +9,7 @@
 #include <time.h>
 #include <ua_pubsub_internal.h>
 
-#define REPETITIONS 1000
+#define REPETITIONS 10000
 
 int timeval_subtract(struct timespec *result, struct timespec *x, struct timespec *y)
 {
@@ -60,7 +60,7 @@ typedef enum
 } EntityType;
 
 bool dataReceived = false;
-int max_message_pow = 15;
+int max_message_pow = 16;
 
 UA_ByteString byteStringPayloadData = {0, NULL};
 UA_ByteString fullPayloadData = {0, NULL};
@@ -144,8 +144,8 @@ onVariableValueChanged(UA_Server *server,
             if (byteStringValue->data[0] == currentMessageId)
             {
                 dataReceived = true;
-                printf("Variable [%u] updated: UA_ByteString length=%zu, data=%c\n",
-                       nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data[0]);
+                // printf("Variable [%u] updated: UA_ByteString length=%zu, data=%c\n",
+                //        nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data[0]);
             }
         }
         else
@@ -185,8 +185,8 @@ addSubscribedVariables(UA_Server *server, UA_NodeId dataSetReaderId)
                             UA_NS0ID(OBJECTSFOLDER), UA_NS0ID(ORGANIZES),
                             folderBrowseName, UA_NS0ID(BASEOBJECTTYPE), oAttr, NULL, &folderId);
 
-    UA_FieldTargetVariable *targetVars = (UA_FieldTargetVariable *)
-        UA_calloc(readerConfig.dataSetMetaData.fieldsSize, sizeof(UA_FieldTargetVariable));
+    UA_FieldTargetDataType *targetVars = (UA_FieldTargetDataType *)
+        UA_calloc(readerConfig.dataSetMetaData.fieldsSize, sizeof(UA_FieldTargetDataType));
     for (size_t i = 0; i < readerConfig.dataSetMetaData.fieldsSize; i++)
     {
         /* Variable to subscribe data */
@@ -205,9 +205,8 @@ addSubscribedVariables(UA_Server *server, UA_NodeId dataSetReaderId)
                                   vAttr, NULL, &newNode);
 
         /* For creating Targetvariables */
-        UA_FieldTargetDataType_init(&targetVars[i].targetVariable);
-        targetVars[i].targetVariable.attributeId = UA_ATTRIBUTEID_VALUE;
-        targetVars[i].targetVariable.targetNodeId = newNode;
+        targetVars[i].attributeId = UA_ATTRIBUTEID_VALUE;
+        targetVars[i].targetNodeId = newNode;
 
         UA_ValueCallback callback;
         callback.onRead = NULL;
@@ -218,8 +217,6 @@ addSubscribedVariables(UA_Server *server, UA_NodeId dataSetReaderId)
     UA_Server_DataSetReader_createTargetVariables(server, dataSetReaderId,
                                                   readerConfig.dataSetMetaData.fieldsSize,
                                                   targetVars);
-    for (size_t i = 0; i < readerConfig.dataSetMetaData.fieldsSize; i++)
-        UA_FieldTargetDataType_clear(&targetVars[i].targetVariable);
 
     UA_free(targetVars);
     UA_free(readerConfig.dataSetMetaData.fields);
@@ -340,7 +337,7 @@ addDataSetWriter(UA_Server *server)
                                &dataSetWriterConfig, &dataSetWriterIdent);
 }
 
-void executePubSubComunication(UA_Server *server, long long int *duration)
+void sendMessageAndWaitResponse(UA_Server *server, long long int *duration)
 {
     struct timespec time_start;
     dataReceived = false;
@@ -355,7 +352,7 @@ void executePubSubComunication(UA_Server *server, long long int *duration)
     }
 
     TIME_MEASURE_DIFF_USEC(time_start, *duration);
-    printf("Mensagem recebida - %lld\n", *duration);
+    // printf("Mensagem recebida - %lld\n", *duration);
 }
 
 void runTests(UA_Server *server)
@@ -365,7 +362,7 @@ void runTests(UA_Server *server)
     long long int duration[max_message_pow][REPETITIONS];
     double rtt;
     int msgNumber = 0;
-
+    double avgRTT[max_message_pow - 1];
     for (size_t power = 1; power < (size_t)max_message_pow; power++)
     {
         totalTime = 0;
@@ -387,19 +384,39 @@ void runTests(UA_Server *server)
             UA_Variant_setScalar(&value, &byteStringPayloadData, &UA_TYPES[UA_TYPES_BYTESTRING]);
             UA_Server_writeValue(server, UA_NODEID_STRING(1, "ByteStringVariable"), value);
 
-            printf("mensagem num %d de tamanho %d publicada id %c. aguardando resposta...\n", i + 1, messageLength, currentMessageId);
-            executePubSubComunication(server, &(duration[power - 1][i]));
-            printf("resposta %d recebida\n", msgNumber);
+            // printf("mensagem num %d de tamanho %d publicada id %c. aguardando resposta...\n", i + 1, messageLength, currentMessageId);
+            sendMessageAndWaitResponse(server, &(duration[power - 1][i]));
+            // printf("resposta %d recebida\n", msgNumber);
             msgNumber++;
             totalTime += duration[power - 1][i];
+            // usleep(10000);
         }
 
         rtt = (double)totalTime / REPETITIONS; // getting value in usec
 
         printf("payload length %d bytes - average rtt/request  = %.2f usec\n", messageLength, rtt);
+        avgRTT[power - 1] = rtt;
     }
 
     // Write data on file
+
+    const char *avgRttFile = "avgRttFile.csv";
+    FILE *avgFile = fopen(avgRttFile, "w");
+
+    if (avgFile == NULL)
+    {
+        perror("Erro ao abir o arquivo avgRttfile.csv");
+        return;
+    }
+
+    fprintf(avgFile, "Payload size, Avg rtt\n");
+    for (int power = 1; power < max_message_pow; power++)
+    {
+        fprintf(avgFile, "%d, %.2f\n", (int)pow(2, power), avgRTT[power - 1]);
+    }
+
+    fclose(avgFile);
+    printf("Arquivo '%s' criado com sucesso!\n", avgRttFile);
 
     const char *filename = "dataColected.csv";
     FILE *file = fopen(filename, "w");
@@ -427,66 +444,18 @@ void runTests(UA_Server *server)
 
 void runTest2(UA_Server *server)
 {
-
-    long long int totalTime;
-    long long int duration[max_message_pow][REPETITIONS];
-    double rtt;
-    int msgNumber = 1;
-
-    int power = 1;
-    // for (size_t power = 1; power < (size_t)max_message_pow; power++)
-    //{
-    totalTime = 0;
-    int messageLength = (int)pow(2, max_message_pow);
-    byteStringPayloadData.length = (size_t)messageLength;
-
+    printf("Starting test 2\n");
+    byteStringPayloadData.length = 1024;
     UA_Variant value;
     UA_Variant_init(&value);
-    for (int i = 0; i < 5; i++)
+    UA_Variant_setScalar(&value, &byteStringPayloadData, &UA_TYPES[UA_TYPES_BYTESTRING]);
+    UA_Server_writeValue(server, UA_NODEID_STRING(1, "ByteStringVariable"), value);
+
+    for (int i = 0; i < 10000000; i++)
     {
-        // Writing message with new size on the nodeId
-        int id = i % 127;
-        byteStringPayloadData.data[0] = '0' + id;
-        UA_Variant_setScalar(&value, &byteStringPayloadData, &UA_TYPES[UA_TYPES_BYTESTRING]);
-        UA_Server_writeValue(server, UA_NODEID_STRING(1, "ByteStringVariable"), value);
-
-        printf("mensagem num %d de tamanho %d id %c publicada. aguardando resposta...\n", i + 1, byteStringPayloadData.data[0], messageLength);
-        executePubSubComunication(server, &(duration[power - 1][i]));
-        printf("resposta %d recebida\n", msgNumber);
-        msgNumber++;
-        totalTime += duration[power - 1][i];
-        // usleep(10000000);
+        UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
     }
-
-    rtt = (double)totalTime / REPETITIONS; // getting value in usec
-
-    printf("payload length %d bytes - average rtt/request  = %.2f usec\n", messageLength, rtt);
-    // }
-
-    // Write data on file
-
-    const char *filename = "dataTestColected.csv";
-    FILE *file = fopen(filename, "w");
-    if (file == NULL)
-    {
-        perror("Erro ao abrir o arquivo");
-        return;
-    }
-
-    fprintf(file, "Iteration, PayloadSize [bytes], Duration [usec]\n");
-
-    // (int power = 1; power < max_message_pow; power++)
-    // {
-    int size = (int)pow(2, max_message_pow);
-    for (int i = 0; i < REPETITIONS; i++)
-    {
-        fprintf(file, "%d, %d, %lld\n", i, size, duration[power - 1][i]);
-    }
-    //}
-
-    fclose(file);
-
-    printf("Arquivo '%s' criado com sucesso!\n", filename);
+    printf("Test ended\n");
 }
 
 static int
@@ -512,8 +481,8 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *pubNetworkAddress
     UA_Server_run_startup(server);
     UA_Server_run_iterate(server, true);
 
-    runTests(server);
-    // runTest2(server);
+    // runTests(server);
+    runTest2(server);
 
     UA_Server_run_shutdown(server);
     UA_Server_delete(server);
@@ -534,8 +503,10 @@ int main(int argc, char **argv)
 
     UA_String transportProfile =
         UA_STRING("http://opcfoundation.org/UA-Profile/Transport/pubsub-udp-uadp");
+
     UA_NetworkAddressUrlDataType pubNetworkAddressUrl =
         {UA_STRING_NULL, UA_STRING("opc.udp://224.0.0.22:4840/")};
+        
     UA_NetworkAddressUrlDataType subNetworkAddressUrl =
         {UA_STRING_NULL, UA_STRING("opc.udp://224.0.0.22:4841/")};
 
