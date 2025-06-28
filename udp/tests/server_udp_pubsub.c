@@ -108,7 +108,7 @@ onVariableValueChanged(UA_Server *server,
             // publish echo when message is received
             if (byteStringValue->data[0] == expectedMessageId)
             {
-                printf("entrou aqui!\n");
+                // printf("entrou aqui!\n");
                 UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
                 printf("enviando echo msg num %d. id expected %c\n", msgCount, expectedMessageId);
                 msgCount++;

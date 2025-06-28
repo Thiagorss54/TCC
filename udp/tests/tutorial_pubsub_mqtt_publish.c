@@ -45,37 +45,43 @@
 #include <open62541/plugin/securitypolicy_default.h>
 
 #include <stdio.h>
+#include <math.h>
+#include <unistd.h> 
 
-#define CONNECTION_NAME "MQTT Publisher Connection"
-#define TRANSPORT_PROFILE_URI_UADP "http://opcfoundation.org/UA-Profile/Transport/pubsub-mqtt-uadp"
-#define TRANSPORT_PROFILE_URI_JSON "http://opcfoundation.org/UA-Profile/Transport/pubsub-mqtt-json"
-#define MQTT_CLIENT_ID "TESTCLIENTPUBSUBMQTT"
-#define CONNECTIONOPTION_NAME "mqttClientId"
-#define PUBLISHER_TOPIC "customTopic"
-#define PUBLISHER_METADATAQUEUENAME "MetaDataTopic"
+#define PACKET_LOSS_ITERATIONS 100000
+#define LATENCY_ITERATIONS 10000
+#define OUTPUT_FILENAME "publisher_timestamps.csv"
+
+#define CONNECTION_NAME              "MQTT Publisher Connection"
+#define TRANSPORT_PROFILE_URI_UADP   "http://opcfoundation.org/UA-Profile/Transport/pubsub-mqtt-uadp"
+#define TRANSPORT_PROFILE_URI_JSON   "http://opcfoundation.org/UA-Profile/Transport/pubsub-mqtt-json"
+#define MQTT_CLIENT_ID               "TESTCLIENTPUBSUBMQTT"
+#define CONNECTIONOPTION_NAME        "mqttClientId"
+#define PUBLISHER_TOPIC              "customTopic"
+#define PUBLISHER_METADATAQUEUENAME  "MetaDataTopic"
 #define PUBLISHER_METADATAUPDATETIME 0
-#define BROKER_ADDRESS_URL "opc.mqtt://127.0.0.1:1883"
-#define PUBLISH_INTERVAL 500
+#define BROKER_ADDRESS_URL           "opc.mqtt://127.0.0.1:1883"
+#define PUBLISH_INTERVAL             10000000000
 
 // Uncomment the following line to enable MQTT login for the example
 // #define EXAMPLE_USE_MQTT_LOGIN
 
 #ifdef EXAMPLE_USE_MQTT_LOGIN
-#define LOGIN_OPTION_COUNT 2
-#define USERNAME_OPTION_NAME "mqttUsername"
-#define PASSWORD_OPTION_NAME "mqttPassword"
-#define MQTT_USERNAME "open62541user"
-#define MQTT_PASSWORD "open62541"
+#define LOGIN_OPTION_COUNT           2
+#define USERNAME_OPTION_NAME         "mqttUsername"
+#define PASSWORD_OPTION_NAME         "mqttPassword"
+#define MQTT_USERNAME                "open62541user"
+#define MQTT_PASSWORD                "open62541"
 #endif
 
 // Uncomment the following line to enable MQTT via TLS for the example
-// #define EXAMPLE_USE_MQTT_TLS
+//#define EXAMPLE_USE_MQTT_TLS
 
 #ifdef EXAMPLE_USE_MQTT_TLS
-#define TLS_OPTION_COUNT 2
-#define USE_TLS_OPTION_NAME "mqttUseTLS"
-#define MQTT_CA_FILE_PATH_OPTION_NAME "mqttCaFilePath"
-#define CA_FILE_PATH "/path/to/server.cert"
+#define TLS_OPTION_COUNT                2
+#define USE_TLS_OPTION_NAME             "mqttUseTLS"
+#define MQTT_CA_FILE_PATH_OPTION_NAME   "mqttCaFilePath"
+#define CA_FILE_PATH                    "/path/to/server.cert"
 #endif
 
 #if defined(UA_ENABLE_ENCRYPTION_MBEDTLS) && !defined(UA_ENABLE_JSON_ENCODING)
@@ -94,25 +100,76 @@ static UA_NodeId connectionIdent;
 static UA_NodeId publishedDataSetIdent;
 static UA_NodeId writerGroupIdent;
 
+int max_message_pow = 9;
+
+UA_ByteString byteStringPayloadData = {0, NULL};
+UA_ByteString fullPayloadData = {0, NULL};
+
+void addByteStringVariable(UA_Server *server);
+
+void runPacketLossTest(UA_Server *server);
+
+void printDateTimeWithMicroseconds(UA_DateTime timestamp) {
+    // Converte UA_DateTime (100ns desde 1601) para UA_DateTimeStruct
+    UA_DateTimeStruct ts = UA_DateTime_toStruct(timestamp);
+
+    // Imprime no formato: YYYY-MM-DD HH:MM:SS.mmmuuu
+    printf("%04u-%02u-%02u %02u:%02u:%02u.%03u%03u\n",
+           ts.year,
+           ts.month,
+           ts.day,
+           ts.hour,
+           ts.min,
+           ts.sec,
+           ts.milliSec,
+           ts.microSec);
+}
+
+void printByteString(UA_Server *server, UA_NodeId nodeId) {
+    UA_Variant value;
+    UA_Variant_init(&value);
+
+    UA_StatusCode retval = UA_Server_readValue(server, nodeId, &value);
+    if (retval != UA_STATUSCODE_GOOD) {
+        printf("Erro ao ler ByteString do nó: 0x%08x\n", retval);
+        return;
+    }
+
+    if (!UA_Variant_hasScalarType(&value, &UA_TYPES[UA_TYPES_BYTESTRING])) {
+        printf("Nó não contém um ByteString.\n");
+        UA_Variant_clear(&value);
+        return;
+    }
+
+    UA_ByteString byteStr = *(UA_ByteString *)value.data;
+
+    printf("ByteString (%lu bytes):\n", (unsigned long)byteStr.length);
+
+    // Imprime em hexadecimal
+    for (size_t i = 0; i < byteStr.length; ++i) {
+        printf("%02X ", byteStr.data[i]);
+        if ((i + 1) % 16 == 0) printf("\n");
+    }
+    if (byteStr.length % 16 != 0) printf("\n");
+
+    UA_Variant_clear(&value);
+}
+
 static void
-addPubSubConnection(UA_Server *server, char *addressUrl)
-{
+addPubSubConnection(UA_Server *server, char *addressUrl) {
     /* Details about the connection configuration and handling are located
      * in the pubsub connection tutorial */
     UA_PubSubConnectionConfig connectionConfig;
     memset(&connectionConfig, 0, sizeof(connectionConfig));
     connectionConfig.name = UA_STRING(CONNECTION_NAME);
-    if (useJson)
-    {
+    if(useJson) {
         connectionConfig.transportProfileUri = UA_STRING(TRANSPORT_PROFILE_URI_JSON);
-    }
-    else
-    {
+    } else {
         connectionConfig.transportProfileUri = UA_STRING(TRANSPORT_PROFILE_URI_UADP);
     }
 
     /* configure address of the mqtt broker (local on default port) */
-    UA_NetworkAddressUrlDataType networkAddressUrl = {UA_STRING_NULL, UA_STRING(addressUrl)};
+    UA_NetworkAddressUrlDataType networkAddressUrl = {UA_STRING_NULL , UA_STRING(addressUrl)};
     UA_Variant_setScalar(&connectionConfig.address, &networkAddressUrl,
                          &UA_TYPES[UA_TYPES_NETWORKADDRESSURLDATATYPE]);
     /* Changed to static publisherId from random generation to identify
@@ -121,12 +178,12 @@ addPubSubConnection(UA_Server *server, char *addressUrl)
     connectionConfig.publisherId.id.uint16 = 2234;
 
     /* configure options, set mqtt client id */
-    /* #ifdef EXAMPLE_USE_MQTT_LOGIN */
-    /*     + LOGIN_OPTION_COUNT */
-    /* #endif */
-    /* #ifdef EXAMPLE_USE_MQTT_TLS */
-    /*     + TLS_OPTION_COUNT */
-    /* #endif */
+/* #ifdef EXAMPLE_USE_MQTT_LOGIN */
+/*     + LOGIN_OPTION_COUNT */
+/* #endif */
+/* #ifdef EXAMPLE_USE_MQTT_TLS */
+/*     + TLS_OPTION_COUNT */
+/* #endif */
 
     UA_KeyValuePair connectionOptions[1];
 
@@ -134,25 +191,25 @@ addPubSubConnection(UA_Server *server, char *addressUrl)
     connectionOptions[0].key = UA_QUALIFIEDNAME(0, CONNECTIONOPTION_NAME);
     UA_Variant_setScalar(&connectionOptions[0].value, &mqttClientId, &UA_TYPES[UA_TYPES_STRING]);
 
-    /* #ifdef EXAMPLE_USE_MQTT_LOGIN */
-    /*     connectionOptions[connectionOptionIndex].key = UA_QUALIFIEDNAME(0, USERNAME_OPTION_NAME); */
-    /*     UA_String mqttUsername = UA_STRING(MQTT_USERNAME); */
-    /*     UA_Variant_setScalar(&connectionOptions[connectionOptionIndex++].value, &mqttUsername, &UA_TYPES[UA_TYPES_STRING]); */
+/* #ifdef EXAMPLE_USE_MQTT_LOGIN */
+/*     connectionOptions[connectionOptionIndex].key = UA_QUALIFIEDNAME(0, USERNAME_OPTION_NAME); */
+/*     UA_String mqttUsername = UA_STRING(MQTT_USERNAME); */
+/*     UA_Variant_setScalar(&connectionOptions[connectionOptionIndex++].value, &mqttUsername, &UA_TYPES[UA_TYPES_STRING]); */
 
-    /*     connectionOptions[connectionOptionIndex].key = UA_QUALIFIEDNAME(0, PASSWORD_OPTION_NAME); */
-    /*     UA_String mqttPassword = UA_STRING(MQTT_PASSWORD); */
-    /*     UA_Variant_setScalar(&connectionOptions[connectionOptionIndex++].value, &mqttPassword, &UA_TYPES[UA_TYPES_STRING]); */
-    /* #endif */
+/*     connectionOptions[connectionOptionIndex].key = UA_QUALIFIEDNAME(0, PASSWORD_OPTION_NAME); */
+/*     UA_String mqttPassword = UA_STRING(MQTT_PASSWORD); */
+/*     UA_Variant_setScalar(&connectionOptions[connectionOptionIndex++].value, &mqttPassword, &UA_TYPES[UA_TYPES_STRING]); */
+/* #endif */
 
-    /* #ifdef EXAMPLE_USE_MQTT_TLS */
-    /*     connectionOptions[connectionOptionIndex].key = UA_QUALIFIEDNAME(0, USE_TLS_OPTION_NAME); */
-    /*     UA_Boolean mqttUseTLS = true; */
-    /*     UA_Variant_setScalar(&connectionOptions[connectionOptionIndex++].value, &mqttUseTLS, &UA_TYPES[UA_TYPES_BOOLEAN]); */
+/* #ifdef EXAMPLE_USE_MQTT_TLS */
+/*     connectionOptions[connectionOptionIndex].key = UA_QUALIFIEDNAME(0, USE_TLS_OPTION_NAME); */
+/*     UA_Boolean mqttUseTLS = true; */
+/*     UA_Variant_setScalar(&connectionOptions[connectionOptionIndex++].value, &mqttUseTLS, &UA_TYPES[UA_TYPES_BOOLEAN]); */
 
-    /*     connectionOptions[connectionOptionIndex].key = UA_QUALIFIEDNAME(0, MQTT_CA_FILE_PATH_OPTION_NAME); */
-    /*     UA_String mqttCaFile = UA_STRING(CA_FILE_PATH); */
-    /*     UA_Variant_setScalar(&connectionOptions[connectionOptionIndex++].value, &mqttCaFile, &UA_TYPES[UA_TYPES_STRING]); */
-    /* #endif */
+/*     connectionOptions[connectionOptionIndex].key = UA_QUALIFIEDNAME(0, MQTT_CA_FILE_PATH_OPTION_NAME); */
+/*     UA_String mqttCaFile = UA_STRING(CA_FILE_PATH); */
+/*     UA_Variant_setScalar(&connectionOptions[connectionOptionIndex++].value, &mqttCaFile, &UA_TYPES[UA_TYPES_STRING]); */
+/* #endif */
 
     connectionConfig.connectionProperties.map = connectionOptions;
     connectionConfig.connectionProperties.mapSize = 1;
@@ -168,10 +225,9 @@ addPubSubConnection(UA_Server *server, char *addressUrl)
  * connection.
  */
 static void
-addPublishedDataSet(UA_Server *server)
-{
+addPublishedDataSet(UA_Server *server) {
     /* The PublishedDataSetConfig contains all necessary public
-     * information for the creation of a new PublishedDataSet */
+    * information for the creation of a new PublishedDataSet */
     UA_PublishedDataSetConfig publishedDataSetConfig;
     memset(&publishedDataSetConfig, 0, sizeof(UA_PublishedDataSetConfig));
     publishedDataSetConfig.publishedDataSetType = UA_PUBSUB_DATASET_PUBLISHEDITEMS;
@@ -180,22 +236,47 @@ addPublishedDataSet(UA_Server *server)
     UA_Server_addPublishedDataSet(server, &publishedDataSetConfig, &publishedDataSetIdent);
 }
 
+void addByteStringVariable(UA_Server *server)
+{
+
+    UA_NodeId byteStringNodeId = UA_NODEID_STRING(1, "ByteStringVariable");
+    // UA_ByteString initialValue = UA_BYTESTRING_ALLOC(byteStringPayloadData.data);
+
+    UA_VariableAttributes attr = UA_VariableAttributes_default;
+    UA_Variant_setScalar(&attr.value, &byteStringPayloadData, &UA_TYPES[UA_TYPES_BYTESTRING]);
+    attr.displayName = UA_LOCALIZEDTEXT("en-US", "ByteStringVariable");
+    attr.dataType = UA_TYPES[UA_TYPES_BYTESTRING].typeId;
+    attr.valueRank = -1;
+    attr.accessLevel = UA_ACCESSLEVELMASK_READ | UA_ACCESSLEVELMASK_WRITE;
+
+    UA_StatusCode retval = UA_Server_addVariableNode(server,
+        byteStringNodeId,
+        UA_NODEID_NUMERIC(0, UA_NS0ID_OBJECTSFOLDER),
+        UA_NODEID_NUMERIC(0, UA_NS0ID_ORGANIZES),
+        UA_QUALIFIEDNAME(1, "ByteStringVariable"),
+        UA_NODEID_NUMERIC(0, UA_NS0ID_BASEDATAVARIABLETYPE),
+        attr,
+        NULL, NULL);
+
+    // UA_ByteString_clear(&initialValue); // libera a memória
+
+}
+
 /**
  * **DataSetField handling**
  * The DataSetField (DSF) is part of the PDS and describes exactly one published field.
  */
 static void
-addDataSetField(UA_Server *server)
-{
+addDataSetField(UA_Server *server) {
     /* Add a field to the previous created PublishedDataSet */
     UA_DataSetFieldConfig dataSetFieldConfig;
     memset(&dataSetFieldConfig, 0, sizeof(UA_DataSetFieldConfig));
     dataSetFieldConfig.dataSetFieldType = UA_PUBSUB_DATASETFIELD_VARIABLE;
 
-    dataSetFieldConfig.field.variable.fieldNameAlias = UA_STRING("Server localtime");
+    dataSetFieldConfig.field.variable.fieldNameAlias = UA_STRING("ByteStringVariable");
     dataSetFieldConfig.field.variable.promotedField = UA_FALSE;
     dataSetFieldConfig.field.variable.publishParameters.publishedVariable =
-        UA_NS0ID(SERVER_SERVERSTATUS_CURRENTTIME);
+        UA_NODEID_STRING(1, "ByteStringVariable");
     dataSetFieldConfig.field.variable.publishParameters.attributeId = UA_ATTRIBUTEID_VALUE;
     UA_Server_addDataSetField(server, publishedDataSetIdent, &dataSetFieldConfig, NULL);
 }
@@ -206,8 +287,7 @@ addDataSetField(UA_Server *server)
  * parameters for the message creation.
  */
 static void
-addWriterGroup(UA_Server *server, char *topic, int interval)
-{
+addWriterGroup(UA_Server *server, char *topic, int interval) {
     /* Now we create a new WriterGroupConfig and add the group to the existing PubSubConnection. */
     UA_WriterGroupConfig writerGroupConfig;
     memset(&writerGroupConfig, 0, sizeof(UA_WriterGroupConfig));
@@ -220,8 +300,7 @@ addWriterGroup(UA_Server *server, char *topic, int interval)
 #ifdef UA_ENABLE_JSON_ENCODING
     UA_JsonWriterGroupMessageDataType *Json_writerGroupMessage;
 
-    if (useJson)
-    {
+    if(useJson) {
         writerGroupConfig.encodingMimeType = UA_PUBSUB_ENCODING_JSON;
         writerGroupConfig.messageSettings.encoding =
             UA_EXTENSIONOBJECT_DECODED;
@@ -237,10 +316,10 @@ addWriterGroup(UA_Server *server, char *topic, int interval)
          * of NetworkMessage */
         Json_writerGroupMessage->networkMessageContentMask =
             (UA_JsonNetworkMessageContentMask)(UA_JSONNETWORKMESSAGECONTENTMASK_NETWORKMESSAGEHEADER |
-                                               (UA_JsonNetworkMessageContentMask)UA_JSONNETWORKMESSAGECONTENTMASK_DATASETMESSAGEHEADER |
-                                               (UA_JsonNetworkMessageContentMask)UA_JSONNETWORKMESSAGECONTENTMASK_SINGLEDATASETMESSAGE |
-                                               (UA_JsonNetworkMessageContentMask)UA_JSONNETWORKMESSAGECONTENTMASK_PUBLISHERID |
-                                               (UA_JsonNetworkMessageContentMask)UA_JSONNETWORKMESSAGECONTENTMASK_DATASETCLASSID);
+            (UA_JsonNetworkMessageContentMask)UA_JSONNETWORKMESSAGECONTENTMASK_DATASETMESSAGEHEADER |
+            (UA_JsonNetworkMessageContentMask)UA_JSONNETWORKMESSAGECONTENTMASK_SINGLEDATASETMESSAGE |
+            (UA_JsonNetworkMessageContentMask)UA_JSONNETWORKMESSAGECONTENTMASK_PUBLISHERID |
+            (UA_JsonNetworkMessageContentMask)UA_JSONNETWORKMESSAGECONTENTMASK_DATASETCLASSID);
         writerGroupConfig.messageSettings.content.decoded.data = Json_writerGroupMessage;
     }
     else
@@ -254,15 +333,15 @@ addWriterGroup(UA_Server *server, char *topic, int interval)
          * message- and transport settings extension objects. These extension
          * objects are defined by the standard. e.g.
          * UadpWriterGroupMessageDataType */
-        writerGroupMessage = UA_UadpWriterGroupMessageDataType_new();
+        writerGroupMessage  = UA_UadpWriterGroupMessageDataType_new();
         /* Change message settings of writerGroup to send PublisherId,
          * WriterGroupId in GroupHeader and DataSetWriterId in PayloadHeader
          * of NetworkMessage */
         writerGroupMessage->networkMessageContentMask =
             (UA_UadpNetworkMessageContentMask)(UA_UADPNETWORKMESSAGECONTENTMASK_PUBLISHERID |
-                                               (UA_UadpNetworkMessageContentMask)UA_UADPNETWORKMESSAGECONTENTMASK_GROUPHEADER |
-                                               (UA_UadpNetworkMessageContentMask)UA_UADPNETWORKMESSAGECONTENTMASK_WRITERGROUPID |
-                                               (UA_UadpNetworkMessageContentMask)UA_UADPNETWORKMESSAGECONTENTMASK_PAYLOADHEADER);
+            (UA_UadpNetworkMessageContentMask)UA_UADPNETWORKMESSAGECONTENTMASK_GROUPHEADER |
+            (UA_UadpNetworkMessageContentMask)UA_UADPNETWORKMESSAGECONTENTMASK_WRITERGROUPID |
+            (UA_UadpNetworkMessageContentMask)UA_UADPNETWORKMESSAGECONTENTMASK_PAYLOADHEADER);
         writerGroupConfig.messageSettings.content.decoded.data = writerGroupMessage;
     }
 
@@ -283,8 +362,14 @@ addWriterGroup(UA_Server *server, char *topic, int interval)
     brokerTransportSettings.authenticationProfileUri = UA_STRING_NULL;
 
     /* Choose the QOS Level for MQTT */
+    // brokerTransportSettings.requestedDeliveryGuarantee =
+    //     UA_BROKERTRANSPORTQUALITYOFSERVICE_BESTEFFORT;
+
+    // brokerTransportSettings.requestedDeliveryGuarantee =
+    //     UA_BROKERTRANSPORTQUALITYOFSERVICE_ATLEASTONCE;
+
     brokerTransportSettings.requestedDeliveryGuarantee =
-        UA_BROKERTRANSPORTQUALITYOFSERVICE_BESTEFFORT;
+        UA_BROKERTRANSPORTQUALITYOFSERVICE_EXACTLYONCE;
 
     /* Encapsulate config in transportSettings */
     UA_ExtensionObject transportSettings;
@@ -297,14 +382,12 @@ addWriterGroup(UA_Server *server, char *topic, int interval)
     UA_Server_addWriterGroup(server, connectionIdent, &writerGroupConfig, &writerGroupIdent);
 
 #ifdef UA_ENABLE_JSON_ENCODING
-    if (useJson)
-    {
+    if(useJson) {
         UA_JsonWriterGroupMessageDataType_delete(Json_writerGroupMessage);
     }
 #endif
 
-    if (!useJson && writerGroupMessage)
-    {
+    if(!useJson && writerGroupMessage) {
         UA_UadpWriterGroupMessageDataType_delete(writerGroupMessage);
     }
 
@@ -324,8 +407,7 @@ addWriterGroup(UA_Server *server, char *topic, int interval)
  * message generation.
  */
 static void
-addDataSetWriter(UA_Server *server, char *topic)
-{
+addDataSetWriter(UA_Server *server, char *topic) {
     /* We need now a DataSetWriter within the WriterGroup. This means we must
      * create a new DataSetWriterConfig and add call the addWriterGroup function. */
     UA_NodeId dataSetWriterIdent;
@@ -338,14 +420,14 @@ addDataSetWriter(UA_Server *server, char *topic)
 #ifdef UA_ENABLE_JSON_ENCODING
     UA_JsonDataSetWriterMessageDataType jsonDswMd;
     UA_ExtensionObject messageSettings;
-    if (useJson)
-    {
+    if(useJson) {
         /* JSON config for the dataSetWriter */
-        jsonDswMd.dataSetMessageContentMask = (UA_JsonDataSetMessageContentMask)(UA_JSONDATASETMESSAGECONTENTMASK_DATASETWRITERID |
-                                                                                 UA_JSONDATASETMESSAGECONTENTMASK_SEQUENCENUMBER |
-                                                                                 UA_JSONDATASETMESSAGECONTENTMASK_STATUS |
-                                                                                 UA_JSONDATASETMESSAGECONTENTMASK_METADATAVERSION |
-                                                                                 UA_JSONDATASETMESSAGECONTENTMASK_TIMESTAMP);
+        jsonDswMd.dataSetMessageContentMask = (UA_JsonDataSetMessageContentMask)
+            (UA_JSONDATASETMESSAGECONTENTMASK_DATASETWRITERID |
+             UA_JSONDATASETMESSAGECONTENTMASK_SEQUENCENUMBER |
+             UA_JSONDATASETMESSAGECONTENTMASK_STATUS |
+             UA_JSONDATASETMESSAGECONTENTMASK_METADATAVERSION |
+             UA_JSONDATASETMESSAGECONTENTMASK_TIMESTAMP);
 
         messageSettings.encoding = UA_EXTENSIONOBJECT_DECODED;
         messageSettings.content.decoded.type =
@@ -371,7 +453,7 @@ addDataSetWriter(UA_Server *server, char *topic)
 
     /* Choose the QOS Level for MQTT */
     brokerTransportSettings.requestedDeliveryGuarantee =
-        UA_BROKERTRANSPORTQUALITYOFSERVICE_BESTEFFORT;
+        UA_BROKERTRANSPORTQUALITYOFSERVICE_EXACTLYONCE;
 
     /* Encapsulate config in transportSettings */
     UA_ExtensionObject transportSettings;
@@ -402,8 +484,7 @@ addDataSetWriter(UA_Server *server, char *topic)
  *
  * It follows the main server code, making use of the above definitions. */
 
-static void usage(void)
-{
+static void usage(void) {
     printf("Usage: tutorial_pubsub_mqtt_publish [--url <opc.mqtt://hostname:port>] "
            "[--topic <mqttTopic>] "
            "[--freq <frequency in ms> "
@@ -415,37 +496,31 @@ static void usage(void)
            "  - JSON: Off\n");
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     /* TODO: Change to secure mqtt port:8883 */
     char *addressUrl = BROKER_ADDRESS_URL;
     char *topic = PUBLISHER_TOPIC;
-    int interval = PUBLISH_INTERVAL;
+    size_t interval = PUBLISH_INTERVAL;
 
     /* Parse arguments */
-    for (int argpos = 1; argpos < argc; argpos++)
-    {
-        if (strcmp(argv[argpos], "--help") == 0)
-        {
+    for(int argpos = 1; argpos < argc; argpos++) {
+        if(strcmp(argv[argpos], "--help") == 0) {
             usage();
             return 0;
         }
 
-        if (strcmp(argv[argpos], "--json") == 0)
-        {
+        if(strcmp(argv[argpos], "--json") == 0) {
 #ifdef UA_ENABLE_JSON_ENCODING
             useJson = true;
-#else
+#else 
             printf("Json encoding not enabled (UA_ENABLE_JSON_ENCODING)\n");
             useJson = false;
 #endif
             continue;
         }
 
-        if (strcmp(argv[argpos], "--url") == 0)
-        {
-            if (argpos + 1 == argc)
-            {
+        if(strcmp(argv[argpos], "--url") == 0) {
+            if(argpos + 1 == argc) {
                 usage();
                 return -1;
             }
@@ -454,10 +529,8 @@ int main(int argc, char **argv)
             continue;
         }
 
-        if (strcmp(argv[argpos], "--topic") == 0)
-        {
-            if (argpos + 1 == argc)
-            {
+        if(strcmp(argv[argpos], "--topic") == 0) {
+            if(argpos + 1 == argc) {
                 usage();
                 return -1;
             }
@@ -466,53 +539,160 @@ int main(int argc, char **argv)
             continue;
         }
 
-        if (strcmp(argv[argpos], "--freq") == 0)
-        {
-            if (argpos + 1 == argc)
-            {
-                usage();
-                return -1;
-            }
-            argpos++;
-            if (sscanf(argv[argpos], "%d", &interval) != 1)
-            {
-                usage();
-                return -1;
-            }
-            if (interval <= 10)
-            {
-                UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
-                               "Publication interval too small");
-                return -1;
-            }
-            continue;
-        }
+        // if(strcmp(argv[argpos], "--freq") == 0) {
+        //     if(argpos + 1 == argc) {
+        //         usage();
+        //         return -1;
+        //     }
+        //     argpos++;
+        //     if(sscanf(argv[argpos], "%d", &interval) != 1) {
+        //         usage();
+        //         return -1;
+        //     }
+        //     if(interval <= 10) {
+        //         UA_LOG_WARNING(UA_Log_Stdout, UA_LOGCATEGORY_USERLAND,
+        //                        "Publication interval too small");
+        //         return -1;
+        //     }
+        //     continue;
+        // }
 
         usage();
         return -1;
     }
 
     UA_Server *server = UA_Server_new();
+    // UA_ServerConfig *config = UA_Server_getConfig(server);
+    // config->logging = UA_Log_Stdout;
 
 #if defined(UA_ENABLE_ENCRYPTION_MBEDTLS)
     /* Instantiate the PubSub SecurityPolicy */
     UA_ServerConfig *config = UA_Server_getConfig(server);
-    config->pubSubConfig.securityPolicies = (UA_PubSubSecurityPolicy *)
+    config->pubSubConfig.securityPolicies = (UA_PubSubSecurityPolicy*)
         UA_malloc(sizeof(UA_PubSubSecurityPolicy));
     config->pubSubConfig.securityPoliciesSize = 1;
     UA_PubSubSecurityPolicy_Aes128Ctr(config->pubSubConfig.securityPolicies,
                                       config->logging);
 #endif
+    
+    fullPayloadData.length = (int)pow(2, max_message_pow);
+    fullPayloadData.data = (UA_Byte*)UA_malloc(fullPayloadData.length);
+    if (!fullPayloadData.data) {
+        printf("Erro ao alocar memória para fullPayloadData\n");
+        return -1;
+    }
+    memset(fullPayloadData.data, '*', fullPayloadData.length);
 
+
+    byteStringPayloadData.data = fullPayloadData.data;
+
+    byteStringPayloadData.length = fullPayloadData.length;
+
+    printf("🔌 Iniciando addPubSubConnection...\n");
     addPubSubConnection(server, addressUrl);
+    printf("✅ addPubSubConnection concluído.\n");
+
+    printf("📦 Iniciando addPublishedDataSet...\n");
     addPublishedDataSet(server);
+    printf("✅ addPublishedDataSet concluído.\n");
+
+    printf("🧱 Iniciando addByteStringVariable...\n");
+    addByteStringVariable(server);
+    printf("✅ addByteStringVariable concluído.\n");
+
+    printf("🔢 Iniciando addDataSetField...\n");
     addDataSetField(server);
+    printf("✅ addDataSetField concluído.\n");
+
+    printf("✍️ Iniciando addWriterGroup...\n");
     addWriterGroup(server, topic, interval);
+    printf("✅ addWriterGroup concluído.\n");
+
+    printf("📨 Iniciando addDataSetWriter...\n");
     addDataSetWriter(server, topic);
+    printf("✅ addDataSetWriter concluído.\n");
 
     UA_Server_enableAllPubSubComponents(server);
-    UA_Server_runUntilInterrupt(server);
+    
+
+    //Defined start and finish
+    UA_Server_run_startup(server);
+    UA_Server_run_iterate(server, true);
+    
+    //runPacketLossTest(server);
+
+    runLatencyTest(server);
+
+    UA_Server_run_shutdown(server);
+
+
+
+    //---------Run interrupt--------------
+    //  UA_Server_runUntilInterrupt(server);
+    
+
+    if (fullPayloadData.data) {
+        UA_free(fullPayloadData.data);
+        fullPayloadData.data = NULL;
+    }
 
     UA_Server_delete(server);
     return 0;
+}
+
+void runPacketLossTest(UA_Server *server)
+{
+    printf("Starting packet loss test\n");
+    byteStringPayloadData.length = 512;
+
+    UA_Variant value;
+    UA_Variant_init(&value);
+    UA_Variant_setScalar(&value, &byteStringPayloadData, &UA_TYPES[UA_TYPES_BYTESTRING]);
+    UA_Server_writeValue(server, UA_NODEID_STRING(1, "ByteStringVariable"), value);
+
+    for (int i = 0; i < PACKET_LOSS_ITERATIONS; i++)
+    {
+        UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
+        UA_Server_run_iterate(server, true);
+    }
+    
+    printf("Test ended\n");
+}
+
+void runLatencyTest(UA_Server *server){
+    printf("Starting latency test \n");
+    static UA_DateTime timestampArray[LATENCY_ITERATIONS];
+    static size_t timestampIndex = 0;
+
+        
+    byteStringPayloadData.length = 512;
+
+    UA_Variant value;
+    UA_Variant_init(&value);
+    UA_Variant_setScalar(&value, &byteStringPayloadData, &UA_TYPES[UA_TYPES_BYTESTRING]);
+    UA_Server_writeValue(server, UA_NODEID_STRING(1, "ByteStringVariable"), value);
+
+    for (int i = 0; i < LATENCY_ITERATIONS; i++)
+    {
+        UA_DateTime now = UA_DateTime_now();
+        timestampArray[timestampIndex++] = now;
+        printDateTimeWithMicroseconds(now);
+        UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
+        UA_Server_run_iterate(server, true);
+    } 
+
+    // write in csv file
+    FILE *fp = fopen(OUTPUT_FILENAME, "w");
+    if (!fp) {
+        perror("Erro ao abrir o arquivo de saída");
+        return;
+    }
+
+    fprintf(fp, "Index,DateTimeRaw\n"); 
+    for (size_t i = 0; i < timestampIndex; i++) {
+        fprintf(fp, "%zu,%lld\n", i, (long long)timestampArray[i]);
+    }
+
+    fclose(fp);
+    printf("Timestamps salvos em '%s'\n", OUTPUT_FILENAME);
 }

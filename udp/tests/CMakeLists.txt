@@ -26,3 +26,6 @@ target_link_libraries(publish_mqtt open62541)
 
 add_executable(subscribe_mqtt tutorial_pubsub_mqtt_subscribe.c)
 target_link_libraries(subscribe_mqtt open62541)
+
+add_executable(calc_lat_mqtt calc_lat_mqtt.c)
+target_link_libraries(calc_lat_mqtt)

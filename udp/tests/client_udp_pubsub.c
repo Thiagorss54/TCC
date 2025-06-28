@@ -144,8 +144,8 @@ onVariableValueChanged(UA_Server *server,
             if (byteStringValue->data[0] == currentMessageId)
             {
                 dataReceived = true;
-                // printf("Variable [%u] updated: UA_ByteString length=%zu, data=%c\n",
-                //        nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data[0]);
+                printf("Variable [%u] updated: UA_ByteString length=%zu, data=%c\n",
+                        nodeId->identifier.numeric, byteStringValue->length, byteStringValue->data[0]);
             }
         }
         else
@@ -442,16 +442,16 @@ void runTests(UA_Server *server)
     printf("Arquivo '%s' criado com sucesso!\n", filename);
 }
 
-void runTest2(UA_Server *server)
+void runPacketLossTest(UA_Server *server)
 {
-    printf("Starting test 2\n");
-    byteStringPayloadData.length = 1024;
+    printf("Starting packet lost test \n");
+    byteStringPayloadData.length = 512;
     UA_Variant value;
     UA_Variant_init(&value);
     UA_Variant_setScalar(&value, &byteStringPayloadData, &UA_TYPES[UA_TYPES_BYTESTRING]);
     UA_Server_writeValue(server, UA_NODEID_STRING(1, "ByteStringVariable"), value);
 
-    for (int i = 0; i < 10000000; i++)
+    for (int i = 0; i < 10000; i++)
     {
         UA_Server_triggerWriterGroupPublish(server, writerGroupIdent);
     }
@@ -481,8 +481,8 @@ run(UA_String *transportProfile, UA_NetworkAddressUrlDataType *pubNetworkAddress
     UA_Server_run_startup(server);
     UA_Server_run_iterate(server, true);
 
-    // runTests(server);
-    runTest2(server);
+    runTests(server);
+    //runPacketLossTest(server);
 
     UA_Server_run_shutdown(server);
     UA_Server_delete(server);
